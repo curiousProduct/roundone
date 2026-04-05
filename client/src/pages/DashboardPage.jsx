@@ -7,12 +7,53 @@ import supabase from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import SendLinkModal from '../components/SendLinkModal'
 
+// ── Confirm close dialog ──────────────────────────────────────────────────────
+
+function ConfirmCloseDialog({ onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4
+      bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-200 shadow-xl
+        p-6 flex flex-col gap-5">
+        <div>
+          <h3 className="text-base font-bold text-slate-900 tracking-tight">
+            Close this job?
+          </h3>
+          <p className="mt-2 text-sm text-slate-500 leading-relaxed">
+            Candidates with pending links won't be able to submit their responses.
+            You can reopen the job at any time.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold
+              text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-lg bg-red-500 hover:bg-red-600 text-white
+              text-sm font-semibold transition-colors shadow-sm"
+          >
+            Close job
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Template card ─────────────────────────────────────────────────────────────
 
-function TemplateCard({ template, onSendLink }) {
+function TemplateCard({ template, onSendLink, onToggleActive, toggling }) {
   const questionCount  = template.questions?.length ?? 0
   const invitedCount   = template.interviews?.length ?? 0
   const submittedCount = template.interviews?.filter(i => i.status === 'submitted').length ?? 0
+  const isActive       = template.is_active
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden
@@ -32,34 +73,49 @@ function TemplateCard({ template, onSendLink }) {
             </p>
           </div>
           {/* Status badge */}
-          <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold
-            ${template.is_active
-              ? 'bg-green-50 text-green-700 border border-green-200'
-              : 'bg-slate-100 text-slate-500 border border-slate-200'
+          <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full
+            text-xs font-semibold border
+            ${isActive
+              ? 'bg-green-50 text-green-700 border-green-200'
+              : 'bg-slate-100 text-slate-500 border-slate-200'
             }`}>
-            {template.is_active ? 'Active' : 'Inactive'}
+            {isActive ? 'Active' : 'Inactive'}
           </span>
         </div>
 
         {/* Stats row */}
         <div className="mt-4 flex items-center gap-5">
-          <Stat icon={<FileVideo size={13} />} value={questionCount} label="questions" />
-          <Stat icon={<Users size={13} />}     value={invitedCount}  label="invited"   />
-          <Stat icon={<CheckCircle2 size={13} />} value={submittedCount} label="submitted" />
+          <Stat icon={<FileVideo size={13} />}     value={questionCount}  label="questions" />
+          <Stat icon={<Users size={13} />}          value={invitedCount}   label="invited"   />
+          <Stat icon={<CheckCircle2 size={13} />}   value={submittedCount} label="submitted" />
         </div>
       </div>
 
       {/* Card footer */}
-      <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onSendLink(template)}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#005ea4] hover:bg-[#004d8a]
-            text-white text-xs font-semibold transition-colors shadow-sm"
+      <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center gap-2
+        flex-wrap">
+
+        {/* Send link — disabled with tooltip when inactive */}
+        <span
+          title={!isActive ? 'Reopen this job to send new links' : undefined}
+          className={!isActive ? 'cursor-not-allowed' : undefined}
         >
-          <Send size={12} />
-          Send link
-        </button>
+          <button
+            type="button"
+            onClick={() => onSendLink(template)}
+            disabled={!isActive}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold
+              transition-colors
+              ${isActive
+                ? 'bg-[#005ea4] hover:bg-[#004d8a] text-white shadow-sm'
+                : 'bg-slate-100 text-slate-400 pointer-events-none'
+              }`}
+          >
+            <Send size={12} />
+            Send link
+          </button>
+        </span>
+
         <Link
           to={`/templates/${template.id}/responses`}
           className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-200
@@ -69,14 +125,36 @@ function TemplateCard({ template, onSendLink }) {
           <ClipboardList size={12} />
           View responses
         </Link>
-        <Link
-          to={`/templates/${template.id}/edit`}
-          className="ml-auto p-2 rounded-lg border border-slate-200 bg-white text-slate-400
-            hover:text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
-          title="Edit template"
-        >
-          <Pencil size={13} />
-        </Link>
+
+        {/* Right-side controls */}
+        <div className="ml-auto flex items-center gap-2">
+          {/* Toggle active/inactive */}
+          <button
+            type="button"
+            onClick={() => onToggleActive(template)}
+            disabled={toggling}
+            className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-colors
+              disabled:opacity-50 disabled:cursor-not-allowed
+              ${isActive
+                ? 'border-slate-200 text-slate-400 hover:border-red-200 hover:text-red-600 hover:bg-red-50'
+                : 'border-green-200 text-green-700 hover:bg-green-50 bg-white'
+              }`}
+          >
+            {toggling
+              ? (isActive ? 'Closing…' : 'Reopening…')
+              : (isActive ? 'Close job' : 'Reopen')
+            }
+          </button>
+
+          <Link
+            to={`/templates/${template.id}/edit`}
+            className="p-2 rounded-lg border border-slate-200 bg-white text-slate-400
+              hover:text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
+            title="Edit template"
+          >
+            <Pencil size={13} />
+          </Link>
+        </div>
       </div>
     </div>
   )
@@ -120,13 +198,13 @@ function EmptyState() {
 
 export default function DashboardPage() {
   const { user } = useAuth()
-  const [templates, setTemplates] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [activeModal, setActiveModal] = useState(null) // template object | null
+  const [templates,    setTemplates]    = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [activeModal,  setActiveModal]  = useState(null)  // template | null (send-link modal)
+  const [confirmClose, setConfirmClose] = useState(null)  // template | null (close-job dialog)
+  const [togglingId,   setTogglingId]   = useState(null)  // template.id | null
 
-  useEffect(() => {
-    fetchTemplates()
-  }, [])
+  useEffect(() => { fetchTemplates() }, [])
 
   async function fetchTemplates() {
     setLoading(true)
@@ -147,6 +225,40 @@ export default function DashboardPage() {
       setTemplates(data ?? [])
     }
     setLoading(false)
+  }
+
+  // Called when the toggle button is clicked on a card
+  function handleToggleActive(template) {
+    if (template.is_active) {
+      // Deactivating: require confirmation first
+      setConfirmClose(template)
+    } else {
+      // Reactivating: no confirmation needed
+      executeToggle(template.id, true)
+    }
+  }
+
+  async function executeToggle(templateId, newValue) {
+    setTogglingId(templateId)
+    try {
+      const { error } = await supabase
+        .from('templates')
+        .update({ is_active: newValue })
+        .eq('id', templateId)
+        .eq('created_by', user.id)
+
+      if (error) throw error
+
+      setTemplates(prev =>
+        prev.map(t => t.id === templateId ? { ...t, is_active: newValue } : t)
+      )
+      toast.success(newValue ? 'Job reopened.' : 'Job closed.')
+    } catch {
+      toast.error('Failed to update job status.')
+    } finally {
+      setConfirmClose(null)
+      setTogglingId(null)
+    }
   }
 
   async function handleSignOut() {
@@ -222,6 +334,8 @@ export default function DashboardPage() {
                 key={t.id}
                 template={t}
                 onSendLink={setActiveModal}
+                onToggleActive={handleToggleActive}
+                toggling={togglingId === t.id}
               />
             ))}
           </div>
@@ -234,8 +348,16 @@ export default function DashboardPage() {
           template={activeModal}
           onClose={() => {
             setActiveModal(null)
-            fetchTemplates() // refresh counts after a link is generated
+            fetchTemplates()
           }}
+        />
+      )}
+
+      {/* Confirm close dialog */}
+      {confirmClose && (
+        <ConfirmCloseDialog
+          onConfirm={() => executeToggle(confirmClose.id, false)}
+          onCancel={() => setConfirmClose(null)}
         />
       )}
     </div>

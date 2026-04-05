@@ -58,6 +58,10 @@ function ErrorPage({ type }) {
       title: 'This link has expired',
       body: 'The interview link you followed is no longer active. Please contact the company to request a new link.',
     },
+    closed: {
+      title: 'This position is no longer accepting responses',
+      body: 'The company has closed applications for this role. Please contact them if you have any questions.',
+    },
     browser: {
       title: 'Browser not supported',
       body: 'Your browser does not support video recording. Please open this link in a recent version of Chrome, Safari, Firefox, or Edge.',
@@ -200,13 +204,18 @@ export default function InterviewPage() {
       supabase.from('candidates').select('name').eq('id', inv.candidate_id).single(),
       supabase
         .from('templates')
-        .select('id, title, questions(id, text, thinking_time, answer_time, order_index)')
+        .select('id, title, is_active, questions(id, text, thinking_time, answer_time, order_index)')
         .eq('id', inv.template_id)
         .single(),
     ])
 
     if (!candidate || !template) {
       setErrorType('invalid')
+      setPageState('error')
+      return
+    }
+    if (!template.is_active) {
+      setErrorType('closed')
       setPageState('error')
       return
     }
