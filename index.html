@@ -475,12 +475,13 @@ document.getElementById('f-email').addEventListener('input', function() {
 
 // Supabase client
 var SUPABASE_URL = 'https://swhkvcqcuchjllzicsjm.supabase.co';
-var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3aGt2Y3FjdWNoamxsemljc2ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzMDUwMDgsImV4cCI6MjA5MDg4MTAwOH0.hO8mrFlkzUAZ9SeTVkrz0pDraXMkGgtOZuDFeG0S8N8';
+var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3aGt2Y3FjdWNoamxsemljc2ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM3NTQxMzIsImV4cCI6MjA1OTMzMDEzMn0.Z9SeTVkrzOpDraXMkGgtOZuDFeG0S8N8lzIIoln7f4I';
 
 async function createSupabaseAccount(email, name, company) {
   var tempPassword = Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10).toUpperCase() + '!1';
   try {
-    var res = await fetch(SUPABASE_URL + '/auth/v1/signup', {
+    var redirectTo = 'https://app.roundone.work/auth';
+    var res = await fetch(SUPABASE_URL + '/auth/v1/signup?redirect_to=' + encodeURIComponent(redirectTo), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -489,8 +490,7 @@ async function createSupabaseAccount(email, name, company) {
       body: JSON.stringify({
         email: email,
         password: tempPassword,
-        data: { full_name: name, company_name: company || '' },
-        options: { emailRedirectTo: 'https://roundoneapp.vercel.app/auth' }
+        data: { full_name: name, company_name: company || '' }
       })
     });
     var data = await res.json();
