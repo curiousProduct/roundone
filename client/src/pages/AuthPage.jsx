@@ -147,7 +147,7 @@ export default function AuthPage() {
           password: data.password,
           options: {
             // /auth is a public route — safe for token exchange on redirect
-            emailRedirectTo: `${window.location.origin}/auth`,
+            emailRedirectTo: 'https://app.roundone.work/auth',
             data: {
               full_name:    data.fullName,
               company_name: data.companyName,
@@ -183,7 +183,7 @@ export default function AuthPage() {
       const { error } = await supabase.auth.resend({
         type:    'signup',
         email,
-        options: { emailRedirectTo: `${window.location.origin}/auth` },
+        options: { emailRedirectTo: 'https://app.roundone.work/auth' },
       })
       if (error) throw error
       toast.success('Verification email resent. Check your inbox.')
