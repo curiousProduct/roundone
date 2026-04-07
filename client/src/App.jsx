@@ -9,6 +9,7 @@ import ResponsesPage from './pages/ResponsesPage'
 import CandidateReviewPage from './pages/CandidateReviewPage'
 import InterviewPage from './pages/InterviewPage'
 import SubmittedPage from './pages/SubmittedPage'
+import SetPasswordPage from './pages/SetPasswordPage'
 
 export default function App() {
   return (
@@ -57,6 +58,9 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          {/* Set password — auth required, handled inline in the page */}
+          <Route path="/set-password" element={<SetPasswordPage />} />
+
           {/* Public candidate routes — no auth required */}
           <Route path="/i/:token"  element={<InterviewPage />} />
           <Route path="/submitted" element={<SubmittedPage />} />

@@ -211,11 +211,25 @@ export default function SendLinkModal({ template, onClose }) {
       expiryDays:    result.expiryDays,
       hrName,
     })
-    window.location.href = (
-      `mailto:${result.email}` +
-      `?subject=${encodeURIComponent(subject)}` +
-      `&body=${encodeURIComponent(body)}`
-    )
+
+    const to  = encodeURIComponent(result.email)
+    const su  = encodeURIComponent(subject)
+    const bd  = encodeURIComponent(body)
+
+    const hrDomain = (user?.email ?? '').split('@')[1]?.toLowerCase() ?? ''
+
+    let url
+    if (hrDomain === 'gmail.com') {
+      url = `https://mail.google.com/mail/?view=cm&to=${to}&su=${su}&body=${bd}`
+    } else if (['outlook.com', 'hotmail.com', 'live.com'].includes(hrDomain)) {
+      url = `https://outlook.live.com/mail/0/deeplink/compose?to=${to}&subject=${su}&body=${bd}`
+    } else if (hrDomain === 'yahoo.com') {
+      url = `https://compose.mail.yahoo.com/?to=${to}&subject=${su}&body=${bd}`
+    } else {
+      url = `mailto:${result.email}?subject=${su}&body=${bd}`
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   function handleBackdropClick(e) {

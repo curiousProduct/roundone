@@ -98,22 +98,27 @@ export default function AuthPage() {
     if (!hash) return
 
     const params = new URLSearchParams(hash.slice(1))
+
+    // Always scrub the hash from the URL — tokens shouldn't sit in the address bar
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+
     if (params.get('error')) {
       setTokenError(
         'This verification link has expired or is no longer valid. ' +
         'Please request a new one below.'
       )
-      // Remove the hash so it doesn't persist on reload
-      window.history.replaceState(
-        null, '',
-        window.location.pathname + window.location.search
-      )
     }
-    // Non-error hash → Supabase JS handles it; no action needed here.
+    // Non-error hash (access_token present) → Supabase JS v2 processes it automatically,
+    // fires onAuthStateChange(SIGNED_IN) → AuthContext updates user → the guard below
+    // routes to /set-password or /dashboard based on password_set.
   }, [])
 
-  // Redirect authenticated users away from /auth
-  if (!loading && user) return <Navigate to="/dashboard" replace />
+  // Redirect authenticated users away from /auth.
+  // Early-access users (no password yet) go to /set-password; everyone else to /dashboard.
+  if (!loading && user) {
+    const dest = user.user_metadata?.password_set ? '/dashboard' : '/set-password'
+    return <Navigate to={dest} replace />
+  }
 
   // ── Mode switch ─────────────────────────────────────────────────────────────
 
@@ -134,12 +139,14 @@ export default function AuthPage() {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data: authData, error } = await supabase.auth.signInWithPassword({
           email:    data.email,
           password: data.password,
         })
         if (error) throw error
-        // Session established → onAuthStateChange → AuthContext → guard above redirects
+        // Route based on password_set so early-access users still land on /set-password
+        const dest = authData.user?.user_metadata?.password_set ? '/dashboard' : '/set-password'
+        navigate(dest, { replace: true })
 
       } else {
         const { error } = await supabase.auth.signUp({
@@ -151,6 +158,7 @@ export default function AuthPage() {
             data: {
               full_name:    data.fullName,
               company_name: data.companyName,
+              password_set: true,   // signed up via form → password already set
             },
           },
         })

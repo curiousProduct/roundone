@@ -12,9 +12,11 @@ export default function ProtectedRoute({ children }) {
     )
   }
 
-  if (!user) {
-    return <Navigate to="/auth" replace />
-  }
+  if (!user) return <Navigate to="/auth" replace />
+
+  // Early-access users who haven't set a password yet must do so before
+  // accessing any protected page.
+  if (!user.user_metadata?.password_set) return <Navigate to="/set-password" replace />
 
   return children
 }
