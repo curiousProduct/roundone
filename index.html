@@ -83,11 +83,11 @@
       <span class="text-on-surface">Round</span><span class="text-primary">One</span>
     </div>
     <div class="hidden md:flex items-center gap-8">
-      <a class="text-slate-600 font-medium hover:text-primary transition-colors text-sm" href="#problem">Problem</a>
+      <a class="text-slate-600 font-medium hover:text-primary transition-colors text-sm" href="#problem">Why RoundOne</a>
       <a class="text-slate-600 font-medium hover:text-primary transition-colors text-sm" href="#how-it-works">How it works</a>
     </div>
     <button onclick="document.getElementById('early-access').scrollIntoView({behavior:'smooth'})" class="bg-primary text-white px-6 py-2.5 rounded-lg font-semibold text-sm hover:bg-primary-container transition-all shadow-sm">
-      Get early access
+      Try it free
     </button>
   </div>
 </nav>
@@ -106,10 +106,10 @@
         Screen candidates before the first call
       </h1>
       <p class="text-lg md:text-xl text-on-surface-variant leading-relaxed mb-10 max-w-lg">
-        Send candidates a link. They answer your questions on video. You review when ready. No scheduling. No back and forth.
+        Send candidates a link directly from your dashboard. They answer your questions on video. You review when ready. No scheduling. No manual effort. No back and forth.
       </p>
       <button onclick="document.getElementById('early-access').scrollIntoView({behavior:'smooth'})" class="px-8 py-4 bg-primary text-white font-bold rounded-lg text-lg hover:bg-primary-container transition-all shadow-md">
-        Request early access
+        Try it free
       </button>
       <p class="mt-4 text-sm text-on-surface-variant/70 font-medium">Free to try. No credit card needed.</p>
     </div>
@@ -121,7 +121,7 @@
           <div class="w-3 h-3 rounded-full bg-red-400"></div>
           <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
           <div class="w-3 h-3 rounded-full bg-green-400"></div>
-          <div class="ml-4 flex-1 bg-white/60 rounded px-3 py-1 text-xs text-slate-400">roundone.io/dashboard</div>
+          <div class="ml-4 flex-1 bg-white/60 rounded px-3 py-1 text-xs text-slate-400">app.roundone.work/dashboard</div>
         </div>
         <div class="bg-white p-5">
           <div class="flex items-center justify-between mb-4">
@@ -204,7 +204,7 @@
 <section class="py-24 md:py-32 bg-surface tonal-shift-sectioning" id="problem">
   <div class="max-w-7xl mx-auto px-6">
     <div class="max-w-3xl mb-16 reveal">
-      <p class="text-sm font-bold text-primary tracking-[0.2em] mb-4">THE PROBLEM</p>
+      <p class="text-sm font-bold text-primary tracking-[0.2em] mb-4">WHY ROUNDONE</p>
       <h2 class="text-4xl md:text-5xl font-bold tracking-tight text-on-surface mb-6">First round screening is broken</h2>
       <p class="text-xl text-on-surface-variant leading-relaxed">HR teams spend hours every week on calls that could have been avoided. Scheduling, no-shows, repetitive questions — all before you even know if the candidate is right.</p>
     </div>
@@ -259,10 +259,10 @@
       </div>
       <div class="flex flex-col reveal reveal-delay-2">
         <div class="w-12 h-12 bg-primary text-white rounded-full flex items-center justify-center font-bold text-xl mb-8 shadow-md z-10 step-num-pulse">2</div>
-        <h3 class="text-2xl font-bold mb-4">Send the link</h3>
-        <p class="text-on-surface-variant leading-relaxed mb-6">Enter the candidate's name and email. A unique link is generated for them. They answer in their own time — no app, no signup.</p>
+        <h3 class="text-2xl font-bold mb-4">Send the link from your dashboard</h3>
+        <p class="text-on-surface-variant leading-relaxed mb-6">Enter the candidate's name and email directly from your dashboard. A unique link is generated and shared instantly — via WhatsApp or email, no manual effort needed.</p>
         <div class="mt-auto bg-surface-container rounded-lg p-4 border border-outline-variant/20 flex items-center justify-between">
-          <span class="text-xs font-mono text-on-surface-variant">roundone.io/i/a8f3k9xz</span>
+          <span class="text-xs font-mono text-on-surface-variant">roundone.work/i/a8f3k9xz</span>
           <span class="material-symbols-outlined text-sm text-primary">content_copy</span>
         </div>
       </div>
@@ -320,7 +320,7 @@
       <!-- FORM -->
       <div class="bg-white p-8 md:p-12 rounded-2xl shadow-sm border border-outline-variant/10 reveal-right" id="form-wrapper">
         <div id="form-content">
-          <h3 class="text-xl font-bold text-on-surface mb-6">Request early access</h3>
+          <h3 class="text-xl font-bold text-on-surface mb-6">Create your free account</h3>
           <div class="space-y-5">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div class="space-y-1">
@@ -355,9 +355,9 @@
               </div>
             </div>
             <button onclick="handleSubmit()" id="submit-btn" class="w-full py-4 bg-primary text-white font-bold rounded-lg hover:bg-primary-container transition-all shadow-md text-base mt-2">
-              Request early access
+              Try it free
             </button>
-            <p class="text-xs text-center text-on-surface-variant/60">We'll reach out within 48 hours. No spam, ever.</p>
+            <p class="text-xs text-center text-on-surface-variant/60">No credit card needed. Get started in minutes.</p>
           </div>
         </div>
         <div id="success-msg" class="hidden text-center py-8">
@@ -366,7 +366,7 @@
           </div>
           <h3 class="text-xl font-bold text-on-surface mb-2">Check your inbox!</h3>
           <p class="text-on-surface-variant mb-2">We've sent a link to <strong id="success-email"></strong></p>
-          <p class="text-sm text-on-surface-variant/70">Click the link in the email to set your password and access RoundOne. Check your spam folder if you don't see it.</p>
+          <p class="text-sm text-on-surface-variant/70">Click the link in the email to set your password and start using RoundOne. Check your spam folder if you don't see it within a few minutes.</p>
         </div>
       </div>
     </div>
