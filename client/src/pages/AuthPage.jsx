@@ -65,6 +65,7 @@ export default function AuthPage() {
   const [isSubmitting,        setIsSubmitting]        = useState(false)
   // Token from email link
   const [tokenError,          setTokenError]          = useState('')
+  const [verifying,           setVerifying]           = useState(false)
   // After signup — waiting for user to verify
   const [pendingVerification, setPendingVerification] = useState(false)
   const [pendingEmail,        setPendingEmail]        = useState('')
@@ -80,44 +81,106 @@ export default function AuthPage() {
     resolver: zodResolver(isLogin ? loginSchema : signupSchema),
   })
 
-  // ── Check URL hash on mount ─────────────────────────────────────────────────
+  // ── Handle email confirmation token on mount ──────────────────────────────
   //
-  // When the user clicks the verification link in their email, Supabase
-  // redirects them to /auth with the result in the URL hash:
-  //   Success: #access_token=...&type=signup  (Supabase JS processes automatically)
-  //   Failure: #error=access_denied&error_code=otp_expired&error_description=...
+  // Supabase sends one of two URL formats when a user clicks a confirmation link:
   //
-  // For success: Supabase JS v2 detects & processes the hash during initialisation,
-  // fires onAuthStateChange(SIGNED_IN) → AuthContext updates → the guard below
-  // redirects to /dashboard. Nothing extra needed.
+  //   Implicit flow:  /auth#access_token=xxx&refresh_token=xxx&type=signup
+  //   OTP flow:       /auth?token_hash=xxx&type=signup  (or type=email)
   //
-  // For failure: we read the hash, show an error, then clean up the URL.
+  // We detect both, exchange the token for a session explicitly (don't rely on
+  // Supabase's auto-detection which has a race condition with our hash scrub),
+  // then route based on password_set.
 
   useEffect(() => {
-    const hash = window.location.hash
-    if (!hash) return
+    async function handleConfirmation() {
+      const hashParams   = new URLSearchParams(window.location.hash.slice(1))
+      const searchParams = new URLSearchParams(window.location.search)
 
-    const params = new URLSearchParams(hash.slice(1))
+      // ── Error in URL ────────────────────────────────────────────────────
+      if (hashParams.get('error') || searchParams.get('error')) {
+        setTokenError(
+          'This verification link has expired or is no longer valid. ' +
+          'Please request a new one below.'
+        )
+        window.history.replaceState(null, '', window.location.pathname)
+        return
+      }
 
-    // Always scrub the hash from the URL — tokens shouldn't sit in the address bar
-    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+      // ── Implicit flow: #access_token=... ────────────────────────────────
+      const accessToken  = hashParams.get('access_token')
+      const refreshToken = hashParams.get('refresh_token') ?? ''
+      if (accessToken) {
+        window.history.replaceState(null, '', window.location.pathname)
+        setVerifying(true)
+        const { data: { session }, error } = await supabase.auth.setSession({
+          access_token:  accessToken,
+          refresh_token: refreshToken,
+        })
+        setVerifying(false)
+        if (error || !session) {
+          setTokenError(
+            'This verification link has expired or is no longer valid. ' +
+            'Please request a new one below.'
+          )
+          return
+        }
+        navigate(
+          session.user.user_metadata?.password_set ? '/dashboard' : '/set-password',
+          { replace: true }
+        )
+        return
+      }
 
-    if (params.get('error')) {
-      setTokenError(
-        'This verification link has expired or is no longer valid. ' +
-        'Please request a new one below.'
-      )
+      // ── OTP / PKCE flow: ?token_hash=...&type=... ───────────────────────
+      const tokenHash = searchParams.get('token_hash')
+      const type      = searchParams.get('type')
+      if (tokenHash && type) {
+        window.history.replaceState(null, '', window.location.pathname)
+        setVerifying(true)
+        const { data: { session }, error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type,
+        })
+        setVerifying(false)
+        if (error || !session) {
+          setTokenError(
+            'This verification link has expired or is no longer valid. ' +
+            'Please request a new one below.'
+          )
+          return
+        }
+        navigate(
+          session.user.user_metadata?.password_set ? '/dashboard' : '/set-password',
+          { replace: true }
+        )
+      }
     }
-    // Non-error hash (access_token present) → Supabase JS v2 processes it automatically,
-    // fires onAuthStateChange(SIGNED_IN) → AuthContext updates user → the guard below
-    // routes to /set-password or /dashboard based on password_set.
-  }, [])
+
+    handleConfirmation()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Redirect authenticated users away from /auth.
   // Early-access users (no password yet) go to /set-password; everyone else to /dashboard.
   if (!loading && user) {
     const dest = user.user_metadata?.password_set ? '/dashboard' : '/set-password'
     return <Navigate to={dest} replace />
+  }
+
+  // Token exchange in progress — show a neutral loading screen so the user
+  // never sees a flash of the login form while we process the confirmation link.
+  if (verifying) {
+    return (
+      <div className="min-h-screen bg-[#f5f7fa] flex flex-col items-center justify-center gap-4">
+        <div className="w-7 h-7 rounded-lg bg-[#005ea4] flex items-center justify-center shadow-sm">
+          <span className="text-white font-bold text-xs">R1</span>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <div className="w-5 h-5 border-2 border-[#005ea4] border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-slate-500 font-medium">Verifying your email…</span>
+        </div>
+      </div>
+    )
   }
 
   // ── Mode switch ─────────────────────────────────────────────────────────────
