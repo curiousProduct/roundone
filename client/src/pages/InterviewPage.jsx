@@ -301,11 +301,15 @@ export default function InterviewPage() {
     }
   }, [])
 
-  // Attach live stream to video elements when phase changes
+  // Attach stream to test video once cameraState flips to 'ready' and element is mounted
   useEffect(() => {
-    if (phase === 'camera_test' && testVideoRef.current && streamRef.current) {
+    if (cameraState === 'ready' && phase === 'camera_test' && testVideoRef.current && streamRef.current) {
       testVideoRef.current.srcObject = streamRef.current
     }
+  }, [cameraState, phase])
+
+  // Attach live stream to recording video when recording phase starts
+  useEffect(() => {
     if (phase === 'recording' && liveVideoRef.current && streamRef.current) {
       liveVideoRef.current.srcObject = streamRef.current
     }
@@ -666,6 +670,7 @@ export default function InterviewPage() {
                   muted
                   playsInline
                   className="w-full h-full object-cover"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
               ) : cameraState === 'requesting' ? (
                 <div className="absolute inset-0 flex items-center justify-center">
