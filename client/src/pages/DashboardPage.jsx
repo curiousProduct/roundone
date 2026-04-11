@@ -1,19 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  Plus, Send, Pencil, Users, FileVideo, CheckCircle2,
-  LayoutTemplate, ClipboardList, Briefcase, Trash2,
-  Layers,
-} from 'lucide-react'
+import { Plus, Pencil, Trash2, Layers, Users, Briefcase, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import supabase from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import NavBar from '../components/NavBar'
-import SendLinkModal from '../components/SendLinkModal'
 
-// ── Shared modal ──────────────────────────────────────────────────────────────
+// ── Confirm modal ─────────────────────────────────────────────────────────────
 
-function ConfirmModal({ title, body, confirmLabel, danger = false, onConfirm, onCancel }) {
+function ConfirmModal({ title, body, confirmLabel, onConfirm, onCancel, loading }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4
       bg-black/40 backdrop-blur-sm">
@@ -27,22 +22,29 @@ function ConfirmModal({ title, body, confirmLabel, danger = false, onConfirm, on
           <button
             type="button"
             onClick={onCancel}
+            disabled={loading}
             className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm
-              font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+              font-semibold text-slate-600 hover:bg-slate-50 transition-colors
+              disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className={`flex-1 py-2.5 rounded-lg text-white text-sm font-semibold
-              transition-colors shadow-sm
-              ${danger
-                ? 'bg-red-500 hover:bg-red-600'
-                : 'bg-[#005ea4] hover:bg-[#004d8a]'
-              }`}
+            disabled={loading}
+            className="flex-1 py-2.5 rounded-lg bg-red-500 hover:bg-red-600 text-white
+              text-sm font-semibold transition-colors shadow-sm
+              disabled:opacity-60 disabled:cursor-not-allowed
+              flex items-center justify-center gap-2"
           >
-            {confirmLabel}
+            {loading ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white
+                  rounded-full animate-spin" />
+                Deleting…
+              </>
+            ) : confirmLabel}
           </button>
         </div>
       </div>
@@ -50,23 +52,68 @@ function ConfirmModal({ title, body, confirmLabel, danger = false, onConfirm, on
   )
 }
 
+// ── Stage stat row ────────────────────────────────────────────────────────────
+
+function StageStatRow({ stage, invited, primary, primaryLabel }) {
+  const isAsync = stage.type === 'async_video'
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0
+          ${isAsync ? 'bg-[#005ea4]' : 'bg-violet-500'}`}
+        />
+        <span className="text-xs text-slate-600 truncate">
+          <span className="font-semibold">Stage {stage.order_index}</span>
+          {' — '}
+          {stage.name}
+        </span>
+      </div>
+      <span className="shrink-0 text-xs text-slate-400 tabular-nums whitespace-nowrap">
+        <span className="font-semibold text-slate-700">{primary}</span>
+        {' '}{primaryLabel}{' / '}
+        <span className="font-semibold text-slate-700">{invited}</span>
+        {' '}invited
+      </span>
+    </div>
+  )
+}
+
 // ── Job opening card ──────────────────────────────────────────────────────────
 
-function JobOpeningCard({ job, onDelete }) {
-  const stageCount = job.pipeline_stages?.length ?? 0
+function JobOpeningCard({ job, stage1StatsMap, stageStatsMap, onDelete }) {
+  const stageCount     = job.pipeline_stages?.length ?? 0
   const candidateCount = job.candidate_applications?.length ?? 0
+
+  const sortedStages = [...(job.pipeline_stages ?? [])]
+    .sort((a, b) => a.order_index - b.order_index)
+
+  // Build only the rows that have data
+  const statsRows = sortedStages.flatMap(stage => {
+    if (stage.order_index === 1) {
+      if (!stage.template_id) return []
+      const s = stage1StatsMap[stage.template_id]
+      if (!s || s.invited === 0) return []
+      return [{ stage, invited: s.invited, primary: s.submitted, primaryLabel: 'submitted' }]
+    } else {
+      const s = stageStatsMap[stage.id]
+      if (!s || s.invited === 0) return []
+      return [{ stage, invited: s.invited, primary: s.completed, primaryLabel: 'completed' }]
+    }
+  })
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden
       hover:shadow-md hover:border-slate-300 transition-all">
 
-      <div className="p-5">
+      {/* Body */}
+      <div className="p-5 flex flex-col gap-4">
+
+        {/* Title + status badge */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="font-bold text-slate-900 tracking-tight truncate">{job.title}</h3>
-            {job.description && (
-              <p className="mt-0.5 text-xs text-slate-500 truncate">{job.description}</p>
-            )}
+            <h3 className="font-bold text-slate-900 tracking-tight truncate">
+              {job.title}
+            </h3>
             <p className="mt-1 text-xs text-slate-400">
               Created {new Date(job.created_at).toLocaleDateString('en-IN', {
                 day: 'numeric', month: 'short', year: 'numeric',
@@ -83,206 +130,101 @@ function JobOpeningCard({ job, onDelete }) {
           </span>
         </div>
 
-        <div className="mt-4 flex items-center gap-5">
-          <JobStat icon={<Layers size={13} />}  value={stageCount}    label={stageCount === 1 ? 'stage' : 'stages'} />
-          <JobStat icon={<Users size={13} />}   value={candidateCount} label={candidateCount === 1 ? 'candidate' : 'candidates'} />
+        {/* Summary counts */}
+        <div className="flex items-center gap-5">
+          <div className="flex items-center gap-1.5">
+            <Layers size={13} className="text-slate-400" />
+            <span className="text-sm font-bold text-slate-700">{stageCount}</span>
+            <span className="text-xs text-slate-400">
+              {stageCount === 1 ? 'stage' : 'stages'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Users size={13} className="text-slate-400" />
+            <span className="text-sm font-bold text-slate-700">{candidateCount}</span>
+            <span className="text-xs text-slate-400">
+              {candidateCount === 1 ? 'candidate' : 'candidates'}
+            </span>
+          </div>
         </div>
+
+        {/* Progressive stage stats — only shown when data exists */}
+        {statsRows.length > 0 && (
+          <div className="border-t border-slate-100 pt-4 flex flex-col gap-2.5">
+            {statsRows.map(row => (
+              <StageStatRow
+                key={row.stage.id}
+                stage={row.stage}
+                invited={row.invited}
+                primary={row.primary}
+                primaryLabel={row.primaryLabel}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
+      {/* Footer */}
       <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60
         flex items-center justify-between gap-2">
-        <Link
-          to={`/jobs/${job.id}/edit`}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-200
-            bg-white text-slate-600 text-xs font-semibold hover:bg-slate-50
-            hover:border-slate-300 transition-colors"
-        >
-          <Pencil size={12} />
-          Edit
-        </Link>
-
-        <button
-          type="button"
-          onClick={() => onDelete(job)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-slate-400
-            hover:text-red-600 hover:bg-red-50 transition-colors text-xs font-semibold"
-          title="Delete job opening"
-        >
-          <Trash2 size={13} />
-          Delete
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function JobStat({ icon, value, label }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-slate-400">{icon}</span>
-      <span className="text-sm font-bold text-slate-700">{value}</span>
-      <span className="text-xs text-slate-400">{label}</span>
-    </div>
-  )
-}
-
-// ── Template card ─────────────────────────────────────────────────────────────
-
-function TemplateCard({ template, onSendLink, onToggleActive, toggling }) {
-  const questionCount  = template.questions?.length ?? 0
-  const invitedCount   = template.interviews?.length ?? 0
-  const submittedCount = template.interviews?.filter(i => i.status === 'submitted').length ?? 0
-  const isActive       = template.is_active
-
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden
-      hover:shadow-md hover:border-slate-300 transition-all">
-
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="font-bold text-slate-900 tracking-tight truncate">
-              {template.title}
-            </h3>
-            <p className="mt-0.5 text-xs text-slate-400">
-              Created {new Date(template.created_at).toLocaleDateString('en-IN', {
-                day: 'numeric', month: 'short', year: 'numeric',
-              })}
-            </p>
-          </div>
-          <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full
-            text-xs font-semibold border
-            ${isActive
-              ? 'bg-green-50 text-green-700 border-green-200'
-              : 'bg-slate-100 text-slate-500 border-slate-200'
-            }`}>
-            {isActive ? 'Active' : 'Inactive'}
-          </span>
-        </div>
-
-        <div className="mt-4 flex items-center gap-5">
-          <Stat icon={<FileVideo size={13} />}   value={questionCount}  label="questions" />
-          <Stat icon={<Users size={13} />}        value={invitedCount}   label="invited"   />
-          <Stat icon={<CheckCircle2 size={13} />} value={submittedCount} label="submitted" />
-        </div>
-      </div>
-
-      <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center
-        gap-2 flex-wrap">
-        <span
-          title={!isActive ? 'Reopen this job to send new links' : undefined}
-          className={!isActive ? 'cursor-not-allowed' : undefined}
-        >
-          <button
-            type="button"
-            onClick={() => onSendLink(template)}
-            disabled={!isActive}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold
-              transition-colors
-              ${isActive
-                ? 'bg-[#005ea4] hover:bg-[#004d8a] text-white shadow-sm'
-                : 'bg-slate-100 text-slate-400 pointer-events-none'
-              }`}
-          >
-            <Send size={12} />
-            Send link
-          </button>
-        </span>
 
         <Link
-          to={`/templates/${template.id}/responses`}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-200
-            bg-white text-slate-600 text-xs font-semibold hover:bg-slate-50
-            hover:border-slate-300 transition-colors"
+          to={`/jobs/${job.id}`}
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg
+            bg-[#005ea4] hover:bg-[#004d8a] text-white text-xs font-semibold
+            transition-colors shadow-sm"
         >
-          <ClipboardList size={12} />
-          View responses
+          View pipeline
+          <ChevronRight size={12} />
         </Link>
 
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onToggleActive(template)}
-            disabled={toggling}
-            className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-colors
-              disabled:opacity-50 disabled:cursor-not-allowed
-              ${isActive
-                ? 'border-slate-200 text-slate-400 hover:border-red-200 hover:text-red-600 hover:bg-red-50'
-                : 'border-green-200 text-green-700 hover:bg-green-50 bg-white'
-              }`}
-          >
-            {toggling
-              ? (isActive ? 'Closing…' : 'Reopening…')
-              : (isActive ? 'Close job' : 'Reopen')
-            }
-          </button>
-
+        <div className="flex items-center gap-1">
           <Link
-            to={`/templates/${template.id}/edit`}
-            className="p-2 rounded-lg border border-slate-200 bg-white text-slate-400
-              hover:text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
-            title="Edit template"
+            to={`/jobs/${job.id}/edit`}
+            className="p-2 rounded-lg text-slate-400 hover:text-slate-700
+              hover:bg-slate-100 transition-colors"
+            title="Edit job opening"
           >
-            <Pencil size={13} />
+            <Pencil size={14} />
           </Link>
+          <button
+            type="button"
+            onClick={() => onDelete(job)}
+            className="p-2 rounded-lg text-slate-400 hover:text-red-600
+              hover:bg-red-50 transition-colors"
+            title="Delete job opening"
+          >
+            <Trash2 size={14} />
+          </button>
         </div>
       </div>
     </div>
   )
 }
 
-function Stat({ icon, value, label }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-slate-400">{icon}</span>
-      <span className="text-sm font-bold text-slate-700">{value}</span>
-      <span className="text-xs text-slate-400">{label}</span>
-    </div>
-  )
-}
+// ── Empty state ───────────────────────────────────────────────────────────────
 
-// ── Empty states ──────────────────────────────────────────────────────────────
-
-function JobsEmptyState() {
+function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-      <div className="w-14 h-14 rounded-2xl bg-[#e6f0f9] flex items-center justify-center mb-4">
+    <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-[#e6f0f9] flex items-center
+        justify-center mb-4">
         <Briefcase size={24} className="text-[#005ea4]" />
       </div>
-      <h3 className="text-base font-bold text-slate-900 tracking-tight">No job openings yet</h3>
+      <h3 className="text-base font-bold text-slate-900 tracking-tight">
+        No job openings yet
+      </h3>
       <p className="mt-1.5 text-sm text-slate-500 max-w-xs leading-relaxed">
-        Create a job opening to set up a multi-stage interview pipeline for a role.
+        Create a job opening to start building your hiring pipeline.
       </p>
       <Link
         to="/jobs/new"
-        className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#005ea4]
-          hover:bg-[#004d8a] text-white text-sm font-semibold transition-colors shadow-sm"
+        className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg
+          bg-[#005ea4] hover:bg-[#004d8a] text-white text-sm font-semibold
+          transition-colors shadow-sm"
       >
         <Plus size={15} />
-        Create first job opening
-      </Link>
-    </div>
-  )
-}
-
-function TemplatesEmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center py-14 px-4 text-center">
-      <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
-        <LayoutTemplate size={20} className="text-slate-400" />
-      </div>
-      <h3 className="text-sm font-bold text-slate-700 tracking-tight">No templates yet</h3>
-      <p className="mt-1 text-sm text-slate-400 max-w-xs">
-        Templates power Stage 1 of your job openings. Create one to get started.
-      </p>
-      <Link
-        to="/templates/new"
-        className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-lg border
-          border-slate-200 bg-white text-slate-600 text-sm font-semibold
-          hover:bg-slate-50 transition-colors"
-      >
-        <Plus size={14} />
-        New template
+        Create your first job opening
       </Link>
     </div>
   )
@@ -293,254 +235,173 @@ function TemplatesEmptyState() {
 export default function DashboardPage() {
   const { user } = useAuth()
 
-  // Job openings
-  const [jobOpenings,   setJobOpenings]   = useState([])
-  const [jobsLoading,   setJobsLoading]   = useState(true)
-  const [deleteJobConfirm, setDeleteJobConfirm] = useState(null)  // job | null
-  const [deletingJobId, setDeletingJobId] = useState(null)
+  const [jobOpenings,    setJobOpenings]    = useState([])
+  const [stage1StatsMap, setStage1StatsMap] = useState({})
+  const [stageStatsMap,  setStageStatsMap]  = useState({})
+  const [loading,        setLoading]        = useState(true)
+  const [deleteTarget,   setDeleteTarget]   = useState(null)   // job | null
+  const [deleting,       setDeleting]       = useState(false)
 
-  // Templates (existing)
-  const [templates,    setTemplates]    = useState([])
-  const [tmplLoading,  setTmplLoading]  = useState(true)
-  const [activeModal,  setActiveModal]  = useState(null)
-  const [confirmClose, setConfirmClose] = useState(null)
-  const [togglingId,   setTogglingId]   = useState(null)
+  useEffect(() => { fetchDashboard() }, [])
 
-  useEffect(() => {
-    fetchJobOpenings()
-    fetchTemplates()
-  }, [])
+  async function fetchDashboard() {
+    setLoading(true)
+    try {
+      // ── 1. Job openings with stages + application counts
+      const { data: jobs, error: jobErr } = await supabase
+        .from('job_openings')
+        .select(`
+          id, title, is_active, created_at,
+          pipeline_stages ( id, order_index, name, type, template_id ),
+          candidate_applications ( id )
+        `)
+        .eq('created_by', user.id)
+        .order('created_at', { ascending: false })
 
-  // ── Job openings ────────────────────────────────────────────────────────
+      if (jobErr) throw jobErr
+      const jobList = jobs ?? []
 
-  async function fetchJobOpenings() {
-    setJobsLoading(true)
-    const { data, error } = await supabase
-      .from('job_openings')
-      .select(`
-        id, title, description, is_active, created_at,
-        pipeline_stages ( id ),
-        candidate_applications ( id )
-      `)
-      .eq('created_by', user.id)
-      .order('created_at', { ascending: false })
+      // ── 2. Collect IDs for batch stats queries
+      const stage1TemplateIds = [
+        ...new Set(
+          jobList
+            .flatMap(j => j.pipeline_stages ?? [])
+            .filter(s => s.order_index === 1 && s.template_id)
+            .map(s => s.template_id)
+        ),
+      ]
 
-    if (error) {
-      toast.error('Failed to load job openings.')
-      console.error(error)
-    } else {
-      setJobOpenings(data ?? [])
+      const addlStageIds = jobList
+        .flatMap(j => j.pipeline_stages ?? [])
+        .filter(s => s.order_index > 1)
+        .map(s => s.id)
+
+      // ── 3. Batch fetch stats in parallel
+      const [interviewsRes, stageResultsRes] = await Promise.all([
+        stage1TemplateIds.length > 0
+          ? supabase
+              .from('interviews')
+              .select('id, status, template_id')
+              .in('template_id', stage1TemplateIds)
+          : { data: [] },
+        addlStageIds.length > 0
+          ? supabase
+              .from('stage_results')
+              .select('id, stage_id, status')
+              .in('stage_id', addlStageIds)
+          : { data: [] },
+      ])
+
+      // ── 4. Build stage1StatsMap: { [templateId]: { invited, submitted } }
+      const s1Map = {}
+      for (const inv of interviewsRes.data ?? []) {
+        if (!s1Map[inv.template_id]) s1Map[inv.template_id] = { invited: 0, submitted: 0 }
+        s1Map[inv.template_id].invited++
+        if (inv.status === 'submitted') s1Map[inv.template_id].submitted++
+      }
+
+      // ── 5. Build stageStatsMap: { [stageId]: { invited, completed } }
+      const srMap = {}
+      for (const sr of stageResultsRes.data ?? []) {
+        if (!srMap[sr.stage_id]) srMap[sr.stage_id] = { invited: 0, completed: 0 }
+        srMap[sr.stage_id].invited++
+        if (sr.status === 'passed' || sr.status === 'failed') srMap[sr.stage_id].completed++
+      }
+
+      setJobOpenings(jobList)
+      setStage1StatsMap(s1Map)
+      setStageStatsMap(srMap)
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to load dashboard.')
+    } finally {
+      setLoading(false)
     }
-    setJobsLoading(false)
   }
 
-  async function handleDeleteJob(job) {
-    setDeletingJobId(job.id)
+  async function handleDeleteJob() {
+    if (!deleteTarget) return
+    setDeleting(true)
     try {
       const { error } = await supabase
         .from('job_openings')
         .delete()
-        .eq('id', job.id)
+        .eq('id', deleteTarget.id)
         .eq('created_by', user.id)
 
       if (error) throw error
 
-      setJobOpenings(prev => prev.filter(j => j.id !== job.id))
+      setJobOpenings(prev => prev.filter(j => j.id !== deleteTarget.id))
       toast.success('Job opening deleted.')
     } catch {
       toast.error('Failed to delete job opening.')
     } finally {
-      setDeletingJobId(null)
-      setDeleteJobConfirm(null)
+      setDeleting(false)
+      setDeleteTarget(null)
     }
   }
-
-  // ── Templates ───────────────────────────────────────────────────────────
-
-  async function fetchTemplates() {
-    setTmplLoading(true)
-    const { data, error } = await supabase
-      .from('templates')
-      .select(`
-        id, title, is_active, created_at,
-        questions ( id ),
-        interviews ( id, status )
-      `)
-      .eq('created_by', user.id)
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      toast.error('Failed to load templates.')
-      console.error(error)
-    } else {
-      setTemplates(data ?? [])
-    }
-    setTmplLoading(false)
-  }
-
-  function handleToggleActive(template) {
-    if (template.is_active) {
-      setConfirmClose(template)
-    } else {
-      executeToggle(template.id, true)
-    }
-  }
-
-  async function executeToggle(templateId, newValue) {
-    setTogglingId(templateId)
-    try {
-      const { error } = await supabase
-        .from('templates')
-        .update({ is_active: newValue })
-        .eq('id', templateId)
-        .eq('created_by', user.id)
-
-      if (error) throw error
-
-      setTemplates(prev =>
-        prev.map(t => t.id === templateId ? { ...t, is_active: newValue } : t)
-      )
-      toast.success(newValue ? 'Job reopened.' : 'Job closed.')
-    } catch {
-      toast.error('Failed to update job status.')
-    } finally {
-      setConfirmClose(null)
-      setTogglingId(null)
-    }
-  }
-
-  const loading = jobsLoading && tmplLoading
 
   return (
     <div className="min-h-screen bg-[#f5f7fa]">
-
       <NavBar />
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-10">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
 
-        {/* ── Job Openings section ───────────────────────────────────────── */}
-        <section>
-          <div className="flex items-center justify-between gap-4 mb-5">
-            <div>
-              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-                Job openings
-              </h1>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Multi-stage interview pipelines for your open roles.
-              </p>
-            </div>
-            <Link
-              to="/jobs/new"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg
-                bg-[#005ea4] hover:bg-[#004d8a] text-white text-sm font-semibold
-                transition-colors shadow-sm shrink-0"
-            >
-              <Plus size={15} />
-              New job opening
-            </Link>
+        {/* Page header */}
+        <div className="flex items-center justify-between gap-4 mb-7">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+              Job openings
+            </h1>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Multi-stage interview pipelines for your open roles.
+            </p>
           </div>
+          <Link
+            to="/jobs/new"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg
+              bg-[#005ea4] hover:bg-[#004d8a] text-white text-sm font-semibold
+              transition-colors shadow-sm shrink-0"
+          >
+            <Plus size={15} />
+            New job opening
+          </Link>
+        </div>
 
-          {jobsLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="w-6 h-6 border-2 border-[#005ea4] border-t-transparent
-                rounded-full animate-spin" />
-            </div>
-          ) : jobOpenings.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-              <JobsEmptyState />
-            </div>
-          ) : (
-            <div className="grid sm:grid-cols-2 gap-4">
-              {jobOpenings.map(job => (
-                <JobOpeningCard
-                  key={job.id}
-                  job={job}
-                  onDelete={setDeleteJobConfirm}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* ── Templates section ─────────────────────────────────────────── */}
-        <section>
-          <div className="flex items-center justify-between gap-4 mb-5">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">
-                Interview templates
-              </h2>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Question sets used in Stage 1 async screenings.
-              </p>
-            </div>
-            <Link
-              to="/templates/new"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border
-                border-slate-200 bg-white text-slate-600 text-sm font-semibold
-                hover:bg-slate-50 transition-colors shrink-0"
-            >
-              <Plus size={14} />
-              New template
-            </Link>
+        {/* Content */}
+        {loading ? (
+          <div className="flex items-center justify-center py-24">
+            <div className="w-6 h-6 border-2 border-[#005ea4] border-t-transparent
+              rounded-full animate-spin" />
           </div>
-
-          {tmplLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="w-6 h-6 border-2 border-[#005ea4] border-t-transparent
-                rounded-full animate-spin" />
-            </div>
-          ) : templates.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-              <TemplatesEmptyState />
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              {templates.map(t => (
-                <TemplateCard
-                  key={t.id}
-                  template={t}
-                  onSendLink={setActiveModal}
-                  onToggleActive={handleToggleActive}
-                  toggling={togglingId === t.id}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+        ) : jobOpenings.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+            <EmptyState />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {jobOpenings.map(job => (
+              <JobOpeningCard
+                key={job.id}
+                job={job}
+                stage1StatsMap={stage1StatsMap}
+                stageStatsMap={stageStatsMap}
+                onDelete={setDeleteTarget}
+              />
+            ))}
+          </div>
+        )}
       </main>
 
-      {/* Send link modal */}
-      {activeModal && (
-        <SendLinkModal
-          template={activeModal}
-          onClose={() => {
-            setActiveModal(null)
-            fetchTemplates()
-          }}
-        />
-      )}
-
-      {/* Confirm close template */}
-      {confirmClose && (
-        <ConfirmModal
-          title="Close this job?"
-          body="Candidates with pending links won't be able to submit their responses. You can reopen the job at any time."
-          confirmLabel="Close job"
-          danger
-          onConfirm={() => executeToggle(confirmClose.id, false)}
-          onCancel={() => setConfirmClose(null)}
-        />
-      )}
-
-      {/* Confirm delete job opening */}
-      {deleteJobConfirm && (
+      {/* Delete confirmation */}
+      {deleteTarget && (
         <ConfirmModal
           title="Delete this job opening?"
-          body="Are you sure you want to delete this job opening? All candidate applications and stage data will be permanently deleted."
-          confirmLabel={deletingJobId ? 'Deleting…' : 'Delete'}
-          danger
-          onConfirm={() => handleDeleteJob(deleteJobConfirm)}
-          onCancel={() => setDeleteJobConfirm(null)}
+          body="All candidate applications and stage data will be permanently deleted. This cannot be undone."
+          confirmLabel="Delete"
+          loading={deleting}
+          onConfirm={handleDeleteJob}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>
