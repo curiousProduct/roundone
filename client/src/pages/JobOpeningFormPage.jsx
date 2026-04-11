@@ -512,16 +512,14 @@ export default function JobOpeningFormPage() {
                       <p className="text-xs text-red-600">{errors.stage1}</p>
                     )}
 
-                    <a
-                      href="/templates/new"
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <Link
+                      to="/templates/new?from=job"
                       className="text-xs font-semibold text-[#005ea4] hover:underline
                         inline-flex items-center gap-1 w-fit"
                     >
                       <Plus size={11} />
                       Create new template
-                    </a>
+                    </Link>
                   </div>
                 )}
               </div>
