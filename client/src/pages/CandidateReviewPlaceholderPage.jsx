@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, ChevronLeft, ChevronRight,
   Star, Copy, Check, Lock, Award, Clock,
-  CheckCircle2, ExternalLink,
+  CheckCircle2, ExternalLink, Mail, Send,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import supabase from '../lib/supabase'
@@ -150,17 +150,22 @@ function VideoResponseCard({ question, response, index }) {
 
 // ── Live interview details card ───────────────────────────────────────────────
 
-function LiveInterviewCard({ stageResult, onSaved }) {
-  const [editing, setEditing]   = useState(!stageResult?.scheduled_at)
-  const [email,   setEmail]     = useState(stageResult?.interviewer_email ?? '')
-  const [dt,      setDt]        = useState(
+function LiveInterviewCard({
+  stageResult, onSaved,
+  candidateName, candidateEmail,
+  stageName, jobTitle, hrUser,
+}) {
+  const [editing,    setEditing]    = useState(!stageResult?.scheduled_at)
+  const [email,      setEmail]      = useState(stageResult?.interviewer_email ?? '')
+  const [dt,         setDt]         = useState(
     stageResult?.scheduled_at
       ? new Date(stageResult.scheduled_at).toISOString().slice(0, 16)
       : ''
   )
-  const [platform, setPlatform] = useState(stageResult?.platform ?? 'google_meet')
-  const [meetLink, setMeetLink] = useState(stageResult?.meet_link ?? 'https://meet.google.com/new')
-  const [saving,   setSaving]   = useState(false)
+  const [platform,   setPlatform]   = useState(stageResult?.platform ?? 'google_meet')
+  const [meetLink,   setMeetLink]   = useState(stageResult?.meet_link ?? 'https://meet.google.com/new')
+  const [saving,     setSaving]     = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
 
   function handlePlatformChange(v) {
     setPlatform(v)
@@ -193,7 +198,85 @@ function LiveInterviewCard({ stageResult, onSaved }) {
     }
   }
 
-  const isScheduled = Boolean(stageResult?.scheduled_at)
+  function handleCopyLink() {
+    if (!stageResult?.meet_link) return
+    navigator.clipboard.writeText(stageResult.meet_link)
+      .then(() => {
+        setCopiedLink(true)
+        setTimeout(() => setCopiedLink(false), 2000)
+      })
+      .catch(() => toast.error('Could not copy link.'))
+  }
+
+  // Detect HR's email provider to open the right compose window
+  function openEmailClient({ to, subject, body }) {
+    const hrEmail = hrUser?.email ?? ''
+    const isGmail   = /@gmail\.com$/i.test(hrEmail)
+    const isOutlook = /@(outlook|hotmail|live)\.(com|co\.in|co\.uk|org)$/i.test(hrEmail)
+
+    if (isGmail) {
+      const url = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } else if (isOutlook) {
+      const url = `https://outlook.live.com/mail/0/deeplink/compose?to=${encodeURIComponent(to)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } else {
+      window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    }
+  }
+
+  function buildInviteBody({ recipientName, includeCandidate }) {
+    const hrName      = hrUser?.user_metadata?.full_name
+                     ?? hrUser?.user_metadata?.name
+                     ?? hrUser?.email
+                     ?? ''
+    const dateTime    = fmtDateTime(stageResult?.scheduled_at)
+    const plat        = platformLabel(stageResult?.platform)
+    const link        = stageResult?.meet_link ?? ''
+    const stage       = stageName ?? 'Interview'
+    const job         = jobTitle  ?? 'this position'
+
+    const greeting = recipientName ? `Hi ${recipientName},` : 'Hi,'
+    const candidateLine = includeCandidate
+      ? `\nCandidate: ${candidateName ?? ''}\n`
+      : ''
+
+    const lines = [
+      greeting,
+      '',
+      `You have been shortlisted for the ${stage} interview for the ${job} position.`,
+      candidateLine,
+      'Interview details:',
+      `Date & Time: ${dateTime}`,
+      `Platform: ${plat}`,
+      link ? `Meeting link: ${link}` : '',
+      '',
+      'Please confirm your availability by replying to this email.',
+      '',
+      'Best regards,',
+      hrName,
+    ].filter(l => l !== undefined)
+
+    return lines.join('\n')
+  }
+
+  function handleSendCandidate() {
+    if (!candidateEmail) { toast.error('No candidate email on file.'); return }
+    const subject = `Interview Invitation — ${jobTitle ?? 'Position'}`
+    const body    = buildInviteBody({ recipientName: candidateName, includeCandidate: false })
+    openEmailClient({ to: candidateEmail, subject, body })
+  }
+
+  function handleNotifyInterviewer() {
+    const interviewerEmail = stageResult?.interviewer_email
+    if (!interviewerEmail) { toast.error('No interviewer email saved.'); return }
+    const subject = `Interview Scheduled — ${jobTitle ?? 'Position'}`
+    const body    = buildInviteBody({ recipientName: '', includeCandidate: true })
+    openEmailClient({ to: interviewerEmail, subject, body })
+  }
+
+  const isScheduled    = Boolean(stageResult?.scheduled_at)
+  const canSendInvites = isScheduled && Boolean(stageResult?.meet_link)
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -205,27 +288,78 @@ function LiveInterviewCard({ stageResult, onSaved }) {
         )}
       </div>
 
-      <div className="p-5">
+      <div className="p-5 flex flex-col gap-4">
         {!editing && isScheduled ? (
-          /* Details view */
-          <div className="flex flex-col gap-3">
-            <Row label="Interviewer" value={stageResult.interviewer_email ?? '—'} />
-            <Row label="Scheduled"   value={fmtDateTime(stageResult.scheduled_at)} />
-            <Row label="Platform"    value={platformLabel(stageResult.platform)} />
-            {stageResult.meet_link && (
-              <div className="flex items-start justify-between gap-3">
-                <span className="text-xs text-slate-500 shrink-0 pt-0.5">Meet link</span>
-                <a href={stageResult.meet_link} target="_blank" rel="noreferrer"
-                  className="flex items-center gap-1 text-xs font-semibold text-[#005ea4]
-                    hover:underline truncate max-w-[220px]">
-                  <ExternalLink size={11} className="shrink-0" />
-                  {stageResult.meet_link}
-                </a>
+          /* ── Details view ─────────────────────────────────────────────────── */
+          <>
+            <div className="flex flex-col gap-3">
+              <Row label="Interviewer" value={stageResult.interviewer_email ?? '—'} />
+              <Row label="Scheduled"   value={fmtDateTime(stageResult.scheduled_at)} />
+              <Row label="Platform"    value={platformLabel(stageResult.platform)} />
+
+              {/* Meet link row with copy button */}
+              {stageResult.meet_link && (
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-xs text-slate-500 shrink-0 pt-0.5">Meet link</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <a href={stageResult.meet_link} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-1 text-xs font-semibold text-[#005ea4]
+                        hover:underline truncate max-w-[160px]">
+                      <ExternalLink size={11} className="shrink-0" />
+                      {stageResult.meet_link}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleCopyLink}
+                      title="Copy meeting link"
+                      className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-xs
+                        font-semibold transition-colors
+                        ${copiedLink
+                          ? 'bg-[#1D9E75] text-white'
+                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                    >
+                      {copiedLink ? <><Check size={10} />Copied</> : <Copy size={10} />}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Send invite buttons */}
+            {canSendInvites && (
+              <div className="pt-1 border-t border-slate-100 flex flex-col gap-2">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">
+                  Send invite
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSendCandidate}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5
+                      rounded-lg bg-[#005ea4] hover:bg-[#004d8a] text-white text-xs
+                      font-semibold transition-colors shadow-sm"
+                  >
+                    <Mail size={13} />
+                    Invite candidate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNotifyInterviewer}
+                    disabled={!stageResult?.interviewer_email}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5
+                      rounded-lg border border-slate-200 bg-white text-slate-700 text-xs
+                      font-semibold hover:bg-slate-50 hover:border-slate-300 transition-colors
+                      disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Send size={13} />
+                    Notify interviewer
+                  </button>
+                </div>
               </div>
             )}
-          </div>
+          </>
         ) : (
-          /* Schedule form */
+          /* ── Schedule form ─────────────────────────────────────────────────── */
           <form onSubmit={handleSave} className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold text-slate-600">Interviewer email</label>
@@ -963,7 +1097,15 @@ export default function CandidatePipelineReviewPage() {
                   </div>
                 )
               ) : viewingStage?.type === 'live_interview' && viewingResult ? (
-                <LiveInterviewCard stageResult={viewingResult} onSaved={fetchAll} />
+                <LiveInterviewCard
+                  stageResult={viewingResult}
+                  onSaved={fetchAll}
+                  candidateName={candidate?.name ?? ''}
+                  candidateEmail={candidate?.email ?? ''}
+                  stageName={viewingStage.name}
+                  jobTitle={job?.title ?? ''}
+                  hrUser={user}
+                />
               ) : null}
 
             </div>
