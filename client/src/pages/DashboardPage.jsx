@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Plus, Send, Pencil, Users, FileVideo, CheckCircle2,
-  LayoutTemplate, LogOut, ClipboardList, Briefcase, Trash2,
+  LayoutTemplate, ClipboardList, Briefcase, Trash2,
   Layers,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import supabase from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import NavBar from '../components/NavBar'
 import SendLinkModal from '../components/SendLinkModal'
 
 // ── Shared modal ──────────────────────────────────────────────────────────────
@@ -408,46 +409,12 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleSignOut() {
-    await supabase.auth.signOut()
-  }
-
   const loading = jobsLoading && tmplLoading
 
   return (
     <div className="min-h-screen bg-[#f5f7fa]">
 
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center
-          justify-between gap-4">
-          <a
-            href="https://roundone-theta.vercel.app"
-            className="flex items-center gap-2 shrink-0"
-          >
-            <div className="w-7 h-7 rounded-lg bg-[#005ea4] flex items-center
-              justify-center shadow-sm">
-              <span className="text-white font-bold text-xs">R1</span>
-            </div>
-            <span className="font-bold text-slate-900 text-sm tracking-tight">RoundOne</span>
-          </a>
-
-          <div className="flex items-center gap-3">
-            <span className="hidden sm:block text-xs text-slate-400 truncate max-w-[200px]">
-              {user?.email}
-            </span>
-            <button
-              onClick={handleSignOut}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border
-                border-slate-200 text-xs font-semibold text-slate-500 hover:bg-slate-50
-                hover:text-slate-700 transition-colors"
-            >
-              <LogOut size={12} />
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
+      <NavBar />
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-10">
 

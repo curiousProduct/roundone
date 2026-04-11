@@ -11,6 +11,7 @@ import InterviewPage from './pages/InterviewPage'
 import SubmittedPage from './pages/SubmittedPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import JobOpeningFormPage from './pages/JobOpeningFormPage'
+import TemplatesPage from './pages/TemplatesPage'
 
 export default function App() {
   return (
@@ -59,6 +60,16 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          {/* Templates index */}
+          <Route
+            path="/templates"
+            element={
+              <ProtectedRoute>
+                <TemplatesPage />
+              </ProtectedRoute>
+            }
+          />
+
           {/* Job openings */}
           <Route
             path="/jobs/new"
