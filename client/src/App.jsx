@@ -11,6 +11,7 @@ import InterviewPage from './pages/InterviewPage'
 import SubmittedPage from './pages/SubmittedPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import JobOpeningFormPage from './pages/JobOpeningFormPage'
+import JobPipelinePage from './pages/JobPipelinePage'
 import TemplatesPage from './pages/TemplatesPage'
 
 export default function App() {
@@ -76,6 +77,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <JobOpeningFormPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/jobs/:id"
+            element={
+              <ProtectedRoute>
+                <JobPipelinePage />
               </ProtectedRoute>
             }
           />

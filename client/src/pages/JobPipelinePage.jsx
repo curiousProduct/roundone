@@ -1,0 +1,983 @@
+import { useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import {
+  ArrowLeft, UserPlus, Users, ChevronRight,
+  Copy, Check,
+} from 'lucide-react'
+import toast from 'react-hot-toast'
+import supabase from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
+import NavBar from '../components/NavBar'
+
+const APP_BASE_URL = 'https://app.roundone.work'
+const DESC_LIMIT   = 120
+
+function randomToken() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let t = ''
+  for (let i = 0; i < 8; i++) t += chars[Math.floor(Math.random() * chars.length)]
+  return t
+}
+
+// ── Confirm modal ──────────────────────────────────────────────────────────────
+
+function ConfirmModal({ title, body, confirmLabel, variant = 'danger', onConfirm, onCancel, loading }) {
+  const btnCls = variant === 'warning'
+    ? 'bg-amber-500 hover:bg-amber-600'
+    : 'bg-red-500 hover:bg-red-600'
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-200 shadow-xl p-6 flex flex-col gap-5">
+        <div>
+          <h3 className="text-base font-bold text-slate-900 tracking-tight">{title}</h3>
+          <p className="mt-2 text-sm text-slate-500 leading-relaxed">{body}</p>
+        </div>
+        <div className="flex gap-3">
+          <button type="button" onClick={onCancel} disabled={loading}
+            className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold
+              text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50">
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm} disabled={loading}
+            className={`flex-1 py-2.5 rounded-lg text-white text-sm font-semibold transition-colors
+              shadow-sm disabled:opacity-60 disabled:cursor-not-allowed
+              flex items-center justify-center gap-2 ${btnCls}`}>
+            {loading
+              ? <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />Working…</>
+              : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Toggle switch (identical to Dashboard) ─────────────────────────────────────
+
+function ToggleSwitch({ isActive, onToggle, disabled }) {
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={disabled}
+        aria-label={isActive ? 'Close job' : 'Reopen job'}
+        style={{ width: 44, height: 24, borderRadius: 12, flexShrink: 0 }}
+        className={`relative transition-colors duration-200 focus:outline-none
+          ${isActive ? 'bg-[#1D9E75]' : 'bg-[#9CA3AF]'}
+          ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:opacity-90'}`}
+      >
+        <span style={{
+          position: 'absolute', top: 2, width: 20, height: 20,
+          borderRadius: '50%', background: 'white',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          transition: 'left 0.2s', left: isActive ? 22 : 2,
+        }} />
+      </button>
+      <span className="text-xs font-semibold transition-colors duration-200"
+        style={{ color: isActive ? '#1D9E75' : '#6B7280', whiteSpace: 'nowrap' }}>
+        {isActive ? 'Active' : 'Closed'}
+      </span>
+    </div>
+  )
+}
+
+// ── Share link panel ───────────────────────────────────────────────────────────
+
+function ShareLinkPanel({ link, candidateName, onClose }) {
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy() {
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  const waText = encodeURIComponent(
+    `Hi ${candidateName}, you've been invited to complete a video screening.\n\nRecord your answers here: ${link}`
+  )
+  const emailSubject = encodeURIComponent('Video screening invitation')
+  const emailBody    = encodeURIComponent(
+    `Hi ${candidateName},\n\nYou've been invited to complete a video screening.\n\nClick the link to record your responses:\n${link}\n\nThis link expires in 7 days.`
+  )
+
+  return (
+    <div className="mt-5 border-t border-slate-100 pt-5 flex flex-col gap-4">
+      <div>
+        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">
+          Screening link
+        </p>
+        <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+          <span className="flex-1 text-xs text-slate-700 font-mono truncate">{link}</span>
+          <button type="button" onClick={handleCopy}
+            className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors
+              ${copied
+                ? 'bg-[#1D9E75] text-white'
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+            {copied ? <><Check size={11} />Copied</> : <><Copy size={11} />Copy</>}
+          </button>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <a
+          href={`https://wa.me/?text=${waText}`}
+          target="_blank"
+          rel="noreferrer"
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+            bg-[#25D366] hover:bg-[#1da851] text-white text-xs font-semibold transition-colors"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+          </svg>
+          WhatsApp
+        </a>
+        <a
+          href={`mailto:?subject=${emailSubject}&body=${emailBody}`}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg
+            border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect width="20" height="16" x="2" y="4" rx="2"/>
+            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+          </svg>
+          Email
+        </a>
+      </div>
+
+      <button type="button" onClick={onClose}
+        className="w-full py-2.5 rounded-lg border border-slate-200 text-sm font-semibold
+          text-slate-600 hover:bg-slate-50 transition-colors">
+        Done
+      </button>
+    </div>
+  )
+}
+
+// ── Add candidate modal ────────────────────────────────────────────────────────
+
+function AddCandidateModal({ job, stages, user, onClose, onAdded }) {
+  const [name,              setName]              = useState('')
+  const [email,             setEmail]             = useState('')
+  const [phone,             setPhone]             = useState('')
+  const [saving,            setSaving]            = useState(false)
+  const [shareLink,         setShareLink]         = useState(null)
+  const [addedName,         setAddedName]         = useState('')
+
+  const stage1 = stages.find(s => s.order_index === 1)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!stage1?.template_id) {
+      toast.error('Stage 1 has no template assigned.')
+      return
+    }
+    setSaving(true)
+    try {
+      // 1. Create candidate
+      const { data: cand, error: candErr } = await supabase
+        .from('candidates')
+        .insert({
+          name:       name.trim(),
+          email:      email.trim().toLowerCase(),
+          phone:      phone.trim() || null,
+          company_id: user.id,
+        })
+        .select('id')
+        .single()
+      if (candErr) throw candErr
+
+      // 2. Create application
+      const { data: app, error: appErr } = await supabase
+        .from('candidate_applications')
+        .insert({
+          job_opening_id:      job.id,
+          candidate_id:        cand.id,
+          company_id:          user.id,
+          current_stage_index: 1,
+        })
+        .select('id')
+        .single()
+      if (appErr) throw appErr
+
+      // 3. Create interview (Stage 1 is always async_video)
+      const token     = randomToken()
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      const { data: interview, error: intErr } = await supabase
+        .from('interviews')
+        .insert({
+          candidate_id: cand.id,
+          template_id:  stage1.template_id,
+          company_id:   user.id,
+          token,
+          status:     'pending',
+          expires_at: expiresAt,
+        })
+        .select('id')
+        .single()
+      if (intErr) throw intErr
+
+      // 4. Create stage result
+      const { error: srErr } = await supabase
+        .from('stage_results')
+        .insert({
+          application_id: app.id,
+          stage_id:       stage1.id,
+          status:         'pending',
+          interview_id:   interview.id,
+        })
+      if (srErr) throw srErr
+
+      setAddedName(name.trim())
+      setShareLink(`${APP_BASE_URL}/i/${token}`)
+      onAdded()
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to add candidate.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl p-6">
+
+        {/* Modal header */}
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-base font-bold text-slate-900 tracking-tight">
+            {shareLink ? 'Candidate added' : 'Add candidate'}
+          </h3>
+          <button type="button" onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400
+              hover:text-slate-600 hover:bg-slate-100 transition-colors text-xl leading-none font-light">
+            ×
+          </button>
+        </div>
+
+        {!shareLink ? (
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700">
+                Full name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                required
+                autoFocus
+                placeholder="Candidate full name"
+                className="px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900
+                  placeholder:text-slate-400 focus:outline-none focus:ring-2
+                  focus:ring-[#005ea4]/30 focus:border-[#005ea4] transition-colors"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700">
+                Email <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                placeholder="candidate@example.com"
+                className="px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900
+                  placeholder:text-slate-400 focus:outline-none focus:ring-2
+                  focus:ring-[#005ea4]/30 focus:border-[#005ea4] transition-colors"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-700">
+                Phone{' '}
+                <span className="text-slate-400 font-normal">(optional)</span>
+              </label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                placeholder="+91 98765 43210"
+                className="px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900
+                  placeholder:text-slate-400 focus:outline-none focus:ring-2
+                  focus:ring-[#005ea4]/30 focus:border-[#005ea4] transition-colors"
+              />
+            </div>
+
+            {/* Warning when Stage 1 has no template */}
+            {!stage1?.template_id && (
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  Stage 1 has no template assigned.{' '}
+                  <Link
+                    to={`/jobs/${job.id}/edit`}
+                    className="font-semibold underline"
+                    onClick={onClose}
+                  >
+                    Edit the job opening
+                  </Link>{' '}
+                  to add one before adding candidates.
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={onClose}
+                className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold
+                  text-slate-600 hover:bg-slate-50 transition-colors">
+                Cancel
+              </button>
+              <button type="submit" disabled={saving || !stage1?.template_id}
+                className="flex-1 py-2.5 rounded-lg bg-[#005ea4] hover:bg-[#004d8a] text-white
+                  text-sm font-semibold transition-colors shadow-sm
+                  disabled:opacity-60 disabled:cursor-not-allowed
+                  flex items-center justify-center gap-2">
+                {saving
+                  ? <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />Adding…</>
+                  : 'Add candidate'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <>
+            <div className="flex items-center gap-2.5 text-sm text-slate-600">
+              <span className="w-7 h-7 rounded-full bg-[#e6f5ef] flex items-center justify-center shrink-0">
+                <Check size={14} className="text-[#1D9E75]" />
+              </span>
+              <span>
+                <span className="font-semibold text-slate-900">{addedName}</span>
+                {' '}has been added to Stage 1.
+              </span>
+            </div>
+            <ShareLinkPanel
+              link={shareLink}
+              candidateName={addedName}
+              onClose={onClose}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Status badge ───────────────────────────────────────────────────────────────
+
+function StatusBadge({ stageStatus, interviewStatus, overallStatus }) {
+  if (overallStatus === 'rejected') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold
+        bg-red-50 text-red-600 border border-red-200">
+        Rejected
+      </span>
+    )
+  }
+  if (overallStatus === 'hired') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold
+        bg-emerald-50 text-emerald-700 border border-emerald-200">
+        Hired
+      </span>
+    )
+  }
+  if (stageStatus === 'passed') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold
+        bg-[#e6f5ef] text-[#1D9E75] border border-[#b3dece]">
+        Passed
+      </span>
+    )
+  }
+  if (stageStatus === 'failed') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold
+        bg-red-50 text-red-600 border border-red-200">
+        Failed
+      </span>
+    )
+  }
+  if (interviewStatus === 'submitted') {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold
+        bg-[#e6f0f9] text-[#005ea4] border border-[#b3d0ea]">
+        Submitted
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold
+      bg-slate-100 text-slate-500 border border-slate-200">
+      Pending
+    </span>
+  )
+}
+
+// ── Candidate row ──────────────────────────────────────────────────────────────
+
+function CandidateRow({ app, stages, jobId, onReject, onMoveNext, onHire, rejecting, movingNext }) {
+  const currentStage  = stages.find(s => s.order_index === app.current_stage_index)
+  const currentResult = app.stage_results?.find(sr => sr.stage_id === currentStage?.id)
+  const stageStatus   = currentResult?.status ?? 'pending'
+  const interviewStatus = currentResult?.interviews?.status
+
+  const isLastStage  = app.current_stage_index >= stages.length
+  const showMoveNext = app.overall_status === 'active' && stageStatus === 'passed' && !isLastStage
+  const showHire     = app.overall_status === 'active' && stageStatus === 'passed' && isLastStage
+  const showReject   = app.overall_status === 'active'
+  const nextStage    = stages.find(s => s.order_index === app.current_stage_index + 1)
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4
+      hover:border-slate-300 hover:shadow-md transition-all
+      flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+
+      {/* Candidate info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-semibold text-slate-900 text-sm leading-tight">
+            {app.candidates?.name}
+          </span>
+          <StatusBadge
+            stageStatus={stageStatus}
+            interviewStatus={interviewStatus}
+            overallStatus={app.overall_status}
+          />
+        </div>
+        <div className="mt-0.5 flex items-center gap-3 flex-wrap">
+          <span className="text-xs text-slate-400">{app.candidates?.email}</span>
+          {app.candidates?.phone && (
+            <span className="text-xs text-slate-400">{app.candidates.phone}</span>
+          )}
+        </div>
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          {currentStage && (
+            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium
+              ${currentStage.type === 'async_video'
+                ? 'bg-[#e6f0f9] text-[#005ea4]'
+                : 'bg-violet-50 text-violet-700'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0
+                ${currentStage.type === 'async_video' ? 'bg-[#005ea4]' : 'bg-violet-500'}`} />
+              Stage {currentStage.order_index} — {currentStage.name}
+            </span>
+          )}
+          {currentResult?.interviews?.submitted_at && (
+            <span className="text-xs text-slate-400">
+              Submitted{' '}
+              {new Date(currentResult.interviews.submitted_at).toLocaleDateString('en-IN', {
+                day: 'numeric', month: 'short', year: 'numeric',
+              })}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-2 flex-wrap shrink-0">
+        <Link
+          to={`/jobs/${jobId}/candidates/${app.id}`}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200
+            bg-white text-slate-600 text-xs font-semibold
+            hover:bg-slate-50 hover:border-slate-300 transition-colors"
+        >
+          Review
+          <ChevronRight size={11} />
+        </Link>
+
+        {showMoveNext && (
+          <button
+            type="button"
+            onClick={() => onMoveNext(app, nextStage)}
+            disabled={movingNext === app.id}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+              bg-[#e6f5ef] hover:bg-[#d0eddf] text-[#1D9E75] text-xs font-semibold
+              transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {movingNext === app.id && (
+              <span className="w-3 h-3 border border-[#1D9E75]/40 border-t-[#1D9E75] rounded-full animate-spin" />
+            )}
+            Move to Stage {app.current_stage_index + 1}
+          </button>
+        )}
+
+        {showHire && (
+          <button
+            type="button"
+            onClick={() => onHire(app)}
+            disabled={movingNext === app.id}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+              bg-[#1D9E75] hover:bg-[#178a63] text-white text-xs font-semibold
+              transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            Mark as hired
+          </button>
+        )}
+
+        {showReject && (
+          <button
+            type="button"
+            onClick={() => onReject(app)}
+            disabled={rejecting === app.id}
+            className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-red-600
+              hover:bg-red-50 text-xs font-semibold transition-colors
+              disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            Reject
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Skeleton ───────────────────────────────────────────────────────────────────
+
+function Skeleton({ className }) {
+  return <div className={`bg-slate-200 rounded animate-pulse ${className}`} />
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
+
+export default function JobPipelinePage() {
+  const { id: jobId } = useParams()
+  const { user }      = useAuth()
+
+  const [job,          setJob]          = useState(null)
+  const [stages,       setStages]       = useState([])
+  const [applications, setApplications] = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [notFound,     setNotFound]     = useState(false)
+  const [showFullDesc, setShowFullDesc] = useState(false)
+
+  // Modals / actions
+  const [showAddCandidate, setShowAddCandidate] = useState(false)
+  const [rejectTarget,     setRejectTarget]     = useState(null)
+  const [rejecting,        setRejecting]        = useState(null)  // app.id
+  const [movingNext,       setMovingNext]       = useState(null)  // app.id
+
+  // Toggle
+  const [confirmToggle, setConfirmToggle] = useState(false)
+  const [toggling,      setToggling]      = useState(false)
+
+  // Stage filter: null = all, number = stage order_index
+  const [filterStage, setFilterStage] = useState(null)
+
+  useEffect(() => { fetchAll() }, [jobId])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Fetch ──────────────────────────────────────────────────────────────────
+
+  async function fetchAll() {
+    setLoading(true)
+    try {
+      const { data: jobData, error: jobErr } = await supabase
+        .from('job_openings')
+        .select('id, title, description, is_active, created_at')
+        .eq('id', jobId)
+        .eq('created_by', user.id)
+        .single()
+
+      if (jobErr || !jobData) {
+        setNotFound(true)
+        return
+      }
+      setJob(jobData)
+
+      const [stagesRes, appsRes] = await Promise.all([
+        supabase
+          .from('pipeline_stages')
+          .select('id, order_index, name, type, template_id')
+          .eq('job_opening_id', jobId)
+          .order('order_index', { ascending: true }),
+        supabase
+          .from('candidate_applications')
+          .select(`
+            id, current_stage_index, overall_status, created_at,
+            candidates ( id, name, email, phone ),
+            stage_results (
+              id, stage_id, status, interview_id,
+              interviews ( id, status, token, submitted_at )
+            )
+          `)
+          .eq('job_opening_id', jobId)
+          .order('created_at', { ascending: false }),
+      ])
+
+      if (stagesRes.error) throw stagesRes.error
+      if (appsRes.error)   throw appsRes.error
+
+      setStages(stagesRes.data ?? [])
+      setApplications(appsRes.data ?? [])
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to load pipeline.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ── Toggle active/closed ────────────────────────────────────────────────────
+
+  function handleToggle() {
+    if (job.is_active) setConfirmToggle(true)
+    else executeToggle()
+  }
+
+  async function executeToggle() {
+    const newValue = !job.is_active
+    setToggling(true)
+    try {
+      const { error } = await supabase
+        .from('job_openings')
+        .update({ is_active: newValue })
+        .eq('id', jobId)
+        .eq('created_by', user.id)
+      if (error) throw error
+      setJob(prev => ({ ...prev, is_active: newValue }))
+      toast.success(newValue ? 'Job reopened.' : 'Job closed.')
+    } catch {
+      toast.error('Failed to update job status.')
+    } finally {
+      setToggling(false)
+      setConfirmToggle(false)
+    }
+  }
+
+  // ── Reject ──────────────────────────────────────────────────────────────────
+
+  async function confirmReject() {
+    if (!rejectTarget) return
+    setRejecting(rejectTarget.id)
+    try {
+      const { error } = await supabase
+        .from('candidate_applications')
+        .update({ overall_status: 'rejected' })
+        .eq('id', rejectTarget.id)
+      if (error) throw error
+      setApplications(prev =>
+        prev.map(a => a.id === rejectTarget.id ? { ...a, overall_status: 'rejected' } : a)
+      )
+      toast.success('Candidate rejected.')
+    } catch {
+      toast.error('Failed to reject candidate.')
+    } finally {
+      setRejecting(null)
+      setRejectTarget(null)
+    }
+  }
+
+  // ── Move to next stage ──────────────────────────────────────────────────────
+
+  async function handleMoveNext(app, nextStage) {
+    setMovingNext(app.id)
+    try {
+      const { error: updateErr } = await supabase
+        .from('candidate_applications')
+        .update({ current_stage_index: app.current_stage_index + 1 })
+        .eq('id', app.id)
+      if (updateErr) throw updateErr
+
+      const { error: srErr } = await supabase
+        .from('stage_results')
+        .insert({ application_id: app.id, stage_id: nextStage.id, status: 'pending' })
+      if (srErr) throw srErr
+
+      await fetchAll()
+      toast.success(`Moved to Stage ${app.current_stage_index + 1}.`)
+    } catch {
+      toast.error('Failed to move candidate.')
+    } finally {
+      setMovingNext(null)
+    }
+  }
+
+  // ── Mark as hired ───────────────────────────────────────────────────────────
+
+  async function handleHire(app) {
+    setMovingNext(app.id)
+    try {
+      const { error } = await supabase
+        .from('candidate_applications')
+        .update({ overall_status: 'hired' })
+        .eq('id', app.id)
+      if (error) throw error
+      setApplications(prev =>
+        prev.map(a => a.id === app.id ? { ...a, overall_status: 'hired' } : a)
+      )
+      toast.success('Candidate marked as hired!')
+    } catch {
+      toast.error('Failed to update status.')
+    } finally {
+      setMovingNext(null)
+    }
+  }
+
+  // ── Derived ─────────────────────────────────────────────────────────────────
+
+  const filteredApps = filterStage === null
+    ? applications
+    : applications.filter(a => a.current_stage_index === filterStage)
+
+  const stageCounts = stages.reduce((acc, s) => {
+    acc[s.order_index] = applications.filter(a => a.current_stage_index === s.order_index).length
+    return acc
+  }, {})
+
+  const desc     = job?.description ?? ''
+  const descLong = desc.length > DESC_LIMIT
+
+  // ── Not found ───────────────────────────────────────────────────────────────
+
+  if (!loading && notFound) {
+    return (
+      <div className="min-h-screen bg-[#f5f7fa]">
+        <NavBar />
+        <main className="max-w-5xl mx-auto px-4 sm:px-6 py-20 flex flex-col items-center text-center gap-4">
+          <h2 className="text-lg font-bold text-slate-900 tracking-tight">Job not found</h2>
+          <p className="text-sm text-slate-500 max-w-xs leading-relaxed">
+            This job opening doesn't exist or you don't have access to it.
+          </p>
+          <Link
+            to="/dashboard"
+            className="mt-2 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg
+              bg-[#005ea4] hover:bg-[#004d8a] text-white text-sm font-semibold
+              transition-colors shadow-sm"
+          >
+            Back to dashboard
+          </Link>
+        </main>
+      </div>
+    )
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="min-h-screen bg-[#f5f7fa]">
+      <NavBar />
+
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-6">
+
+        {/* ── Page header ─────────────────────────────────────────────────── */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 flex flex-col gap-4">
+
+          {/* Top row: back + toggle + add button */}
+          <div className="flex items-center justify-between gap-4">
+            <Link
+              to="/dashboard"
+              className="flex items-center gap-1.5 text-sm text-slate-500
+                hover:text-slate-900 transition-colors"
+            >
+              <ArrowLeft size={15} />
+              Dashboard
+            </Link>
+            <div className="flex items-center gap-3">
+              {loading
+                ? <Skeleton className="w-24 h-6" />
+                : <ToggleSwitch isActive={job.is_active} onToggle={handleToggle} disabled={toggling} />
+              }
+              <button
+                type="button"
+                onClick={() => setShowAddCandidate(true)}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg
+                  bg-[#005ea4] hover:bg-[#004d8a] text-white text-sm font-semibold
+                  transition-colors shadow-sm disabled:opacity-50"
+              >
+                <UserPlus size={14} />
+                Add candidate
+              </button>
+            </div>
+          </div>
+
+          {/* Job title + description */}
+          {loading ? (
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-7 w-64" />
+              <Skeleton className="h-4 w-96" />
+            </div>
+          ) : (
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight leading-snug">
+                {job.title}
+              </h1>
+              {desc && (
+                <p className="mt-1.5 text-sm text-slate-500 leading-relaxed">
+                  {!showFullDesc && descLong ? (
+                    <>
+                      {desc.slice(0, DESC_LIMIT)}…{' '}
+                      <button type="button" onClick={() => setShowFullDesc(true)}
+                        className="text-[#005ea4] text-xs font-semibold hover:underline">
+                        Show more
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {desc}
+                      {descLong && (
+                        <>{' '}
+                          <button type="button" onClick={() => setShowFullDesc(false)}
+                            className="text-[#005ea4] text-xs font-semibold hover:underline">
+                            Show less
+                          </button>
+                        </>
+                      )}
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Stage filter bar ─────────────────────────────────────────────── */}
+        {!loading && stages.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* All tab */}
+            <button
+              type="button"
+              onClick={() => setFilterStage(null)}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-colors
+                ${filterStage === null
+                  ? 'bg-[#005ea4] text-white shadow-sm'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
+            >
+              All
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold
+                ${filterStage === null ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                {applications.length}
+              </span>
+            </button>
+
+            {stages.map(stage => {
+              const active = filterStage === stage.order_index
+              const count  = stageCounts[stage.order_index] ?? 0
+              return (
+                <button
+                  key={stage.id}
+                  type="button"
+                  onClick={() => setFilterStage(stage.order_index)}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-colors
+                    ${active
+                      ? 'bg-[#005ea4] text-white shadow-sm'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0
+                    ${stage.type === 'async_video'
+                      ? (active ? 'bg-white/70' : 'bg-[#005ea4]')
+                      : (active ? 'bg-white/70' : 'bg-violet-500')}`}
+                  />
+                  Stage {stage.order_index} — {stage.name}
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold
+                    ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                    {count}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── Candidate list ───────────────────────────────────────────────── */}
+        {loading ? (
+          <div className="flex flex-col gap-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-3">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-4 w-36" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+                <Skeleton className="h-3 w-48" />
+                <Skeleton className="h-5 w-28 rounded-full" />
+              </div>
+            ))}
+          </div>
+        ) : filteredApps.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+            <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-[#e6f0f9] flex items-center justify-center mb-4">
+                <Users size={22} className="text-[#005ea4]" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 tracking-tight">
+                {filterStage !== null ? 'No candidates in this stage' : 'No candidates yet'}
+              </h3>
+              <p className="mt-1.5 text-sm text-slate-500 max-w-xs leading-relaxed">
+                {filterStage !== null
+                  ? 'Try selecting a different stage or view all candidates.'
+                  : 'Add your first candidate to get started.'}
+              </p>
+              {filterStage === null && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddCandidate(true)}
+                  className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg
+                    bg-[#005ea4] hover:bg-[#004d8a] text-white text-sm font-semibold
+                    transition-colors shadow-sm"
+                >
+                  <UserPlus size={14} />
+                  Add candidate
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {filteredApps.map(app => (
+              <CandidateRow
+                key={app.id}
+                app={app}
+                stages={stages}
+                jobId={jobId}
+                onReject={setRejectTarget}
+                onMoveNext={handleMoveNext}
+                onHire={handleHire}
+                rejecting={rejecting}
+                movingNext={movingNext}
+              />
+            ))}
+          </div>
+        )}
+
+      </main>
+
+      {/* ── Add candidate modal ──────────────────────────────────────────── */}
+      {showAddCandidate && job && (
+        <AddCandidateModal
+          job={job}
+          stages={stages}
+          user={user}
+          onClose={() => setShowAddCandidate(false)}
+          onAdded={fetchAll}
+        />
+      )}
+
+      {/* ── Reject confirm ───────────────────────────────────────────────── */}
+      {rejectTarget && (
+        <ConfirmModal
+          title={`Reject ${rejectTarget.candidates?.name}?`}
+          body="This will end their application. This action cannot be undone."
+          confirmLabel="Reject candidate"
+          variant="danger"
+          loading={rejecting === rejectTarget.id}
+          onConfirm={confirmReject}
+          onCancel={() => setRejectTarget(null)}
+        />
+      )}
+
+      {/* ── Confirm close toggle ─────────────────────────────────────────── */}
+      {confirmToggle && (
+        <ConfirmModal
+          title="Close this job opening?"
+          body="Candidates won't be able to be added to new stages. You can reopen it at any time."
+          confirmLabel="Close job"
+          variant="warning"
+          loading={toggling}
+          onConfirm={executeToggle}
+          onCancel={() => setConfirmToggle(false)}
+        />
+      )}
+    </div>
+  )
+}
