@@ -62,29 +62,42 @@ function ConfirmModal({ title, body, confirmLabel, variant = 'danger', onConfirm
 
 function ToggleSwitch({ isActive, onToggle, disabled }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={disabled}
-      className="flex items-center gap-2 shrink-0 group"
-      aria-label={isActive ? 'Close job' : 'Reopen job'}
-    >
-      {/* Pill track */}
-      <div className={`relative w-10 h-6 rounded-full transition-colors duration-200
-        ${isActive ? 'bg-[#1D9E75]' : 'bg-slate-300'}
-        ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer group-hover:opacity-90'}`}
+    <div className="flex items-center gap-2 shrink-0">
+      {/* Pill button */}
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={disabled}
+        aria-label={isActive ? 'Close job' : 'Reopen job'}
+        style={{ width: 44, height: 24, borderRadius: 12, flexShrink: 0 }}
+        className={`relative transition-colors duration-200 focus:outline-none
+          ${isActive ? 'bg-[#1D9E75]' : 'bg-[#9CA3AF]'}
+          ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:opacity-90'}`}
       >
         {/* Thumb */}
-        <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm
-          transition-transform duration-200
-          ${isActive ? 'translate-x-5' : 'translate-x-1'}`}
+        <span
+          style={{
+            position: 'absolute',
+            top: 2,
+            width: 20,
+            height: 20,
+            borderRadius: '50%',
+            background: 'white',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            transition: 'left 0.2s',
+            left: isActive ? 22 : 2,
+          }}
         />
-      </div>
-      <span className={`text-xs font-semibold transition-colors
-        ${isActive ? 'text-[#1D9E75]' : 'text-slate-400'}`}>
+      </button>
+
+      {/* Label */}
+      <span
+        className="text-xs font-semibold transition-colors duration-200"
+        style={{ color: isActive ? '#1D9E75' : '#6B7280', whiteSpace: 'nowrap' }}
+      >
         {isActive ? 'Active' : 'Closed'}
       </span>
-    </button>
+    </div>
   )
 }
 
