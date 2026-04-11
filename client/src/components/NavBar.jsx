@@ -20,8 +20,8 @@ export default function NavBar() {
 
         {/* Left: logo + nav links */}
         <div className="flex items-center gap-6">
-          <a
-            href="https://roundone-theta.vercel.app"
+          <Link
+            to="/dashboard"
             className="flex items-center gap-2 shrink-0"
           >
             <div className="w-7 h-7 rounded-lg bg-[#005ea4] flex items-center
@@ -29,7 +29,7 @@ export default function NavBar() {
               <span className="text-white font-bold text-xs">R1</span>
             </div>
             <span className="font-bold text-slate-900 text-sm tracking-tight">RoundOne</span>
-          </a>
+          </Link>
 
           <nav className="flex items-center gap-1">
             <Link
