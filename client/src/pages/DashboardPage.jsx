@@ -142,8 +142,7 @@ function JobOpeningCard({ job, stage1StatsMap, stageStatsMap, onToggle, onDelete
 
   const statsRows = sortedStages.flatMap(stage => {
     if (stage.order_index === 1) {
-      if (!stage.template_id) return []
-      const s = stage1StatsMap[stage.template_id]
+      const s = stage1StatsMap[stage.id]
       if (!s || s.invited === 0) return []
       return [{ stage, invited: s.invited, primary: s.submitted, primaryLabel: 'submitted' }]
     } else {
@@ -350,12 +349,15 @@ export default function DashboardPage() {
       if (jobErr) throw jobErr
       const jobList = jobs ?? []
 
-      const stage1TemplateIds = [
+      // Stage 1 stats: keyed by stage_id (not template_id) to avoid counting
+      // interviews from the old flow that share the same template.
+      // Path: stage_id → stage_results → interviews(status)
+      const stage1StageIds = [
         ...new Set(
           jobList
             .flatMap(j => j.pipeline_stages ?? [])
-            .filter(s => s.order_index === 1 && s.template_id)
-            .map(s => s.template_id)
+            .filter(s => s.order_index === 1)
+            .map(s => s.id)
         ),
       ]
 
@@ -364,12 +366,12 @@ export default function DashboardPage() {
         .filter(s => s.order_index > 1)
         .map(s => s.id)
 
-      const [interviewsRes, stageResultsRes] = await Promise.all([
-        stage1TemplateIds.length > 0
+      const [stage1ResultsRes, stageResultsRes] = await Promise.all([
+        stage1StageIds.length > 0
           ? supabase
-              .from('interviews')
-              .select('id, status, template_id')
-              .in('template_id', stage1TemplateIds)
+              .from('stage_results')
+              .select('stage_id, interviews ( status )')
+              .in('stage_id', stage1StageIds)
           : { data: [] },
         addlStageIds.length > 0
           ? supabase
@@ -380,10 +382,10 @@ export default function DashboardPage() {
       ])
 
       const s1Map = {}
-      for (const inv of interviewsRes.data ?? []) {
-        if (!s1Map[inv.template_id]) s1Map[inv.template_id] = { invited: 0, submitted: 0 }
-        s1Map[inv.template_id].invited++
-        if (inv.status === 'submitted') s1Map[inv.template_id].submitted++
+      for (const sr of stage1ResultsRes.data ?? []) {
+        if (!s1Map[sr.stage_id]) s1Map[sr.stage_id] = { invited: 0, submitted: 0 }
+        s1Map[sr.stage_id].invited++
+        if (sr.interviews?.status === 'submitted') s1Map[sr.stage_id].submitted++
       }
 
       const srMap = {}

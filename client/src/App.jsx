@@ -12,6 +12,7 @@ import SubmittedPage from './pages/SubmittedPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import JobOpeningFormPage from './pages/JobOpeningFormPage'
 import JobPipelinePage from './pages/JobPipelinePage'
+import CandidateReviewPlaceholderPage from './pages/CandidateReviewPlaceholderPage'
 import TemplatesPage from './pages/TemplatesPage'
 
 export default function App() {
@@ -85,6 +86,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <JobPipelinePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/jobs/:id/candidates/:appId"
+            element={
+              <ProtectedRoute>
+                <CandidateReviewPlaceholderPage />
               </ProtectedRoute>
             }
           />

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, UserPlus, Users, ChevronRight,
-  Copy, Check,
+  ArrowLeft, UserPlus, Users,
+  Copy, Check, MoreHorizontal,
+  Eye, ArrowRight, CheckCircle2, X, Link2, RotateCcw, Award, Calendar,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import supabase from '../lib/supabase'
@@ -418,17 +419,239 @@ function StatusBadge({ stageStatus, interviewStatus, overallStatus }) {
 
 // ── Candidate row ──────────────────────────────────────────────────────────────
 
-function CandidateRow({ app, stages, jobId, onReject, onMoveNext, onHire, rejecting, movingNext }) {
-  const currentStage  = stages.find(s => s.order_index === app.current_stage_index)
-  const currentResult = app.stage_results?.find(sr => sr.stage_id === currentStage?.id)
-  const stageStatus   = currentResult?.status ?? 'pending'
-  const interviewStatus = currentResult?.interviews?.status
+function CandidateRow({ app, stages, jobId, onReject, onRestore, onConfirmMoveNext, onConfirmHire }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
 
-  const isLastStage  = app.current_stage_index >= stages.length
-  const showMoveNext = app.overall_status === 'active' && stageStatus === 'passed' && !isLastStage
-  const showHire     = app.overall_status === 'active' && stageStatus === 'passed' && isLastStage
-  const showReject   = app.overall_status === 'active'
-  const nextStage    = stages.find(s => s.order_index === app.current_stage_index + 1)
+  const currentStage    = stages.find(s => s.order_index === app.current_stage_index)
+  const currentResult   = app.stage_results?.find(sr => sr.stage_id === currentStage?.id)
+  const stageStatus     = currentResult?.status ?? 'pending'
+  const interviewStatus = currentResult?.interviews?.status
+  const isLastStage     = app.current_stage_index >= stages.length
+  const nextStage       = stages.find(s => s.order_index === app.current_stage_index + 1)
+  const isStage2Plus    = (currentStage?.order_index ?? 1) > 1
+  const isScheduled     = Boolean(currentResult?.scheduled_at)
+
+  // Unified display status drives both badge and menu
+  const displayStatus =
+    app.overall_status === 'rejected' ? 'rejected'    :
+    app.overall_status === 'hired'    ? 'hired'       :
+    stageStatus === 'passed'          ? 'passed'      :
+    stageStatus === 'failed'          ? 'failed'      :
+    stageStatus === 'in_progress'     ? 'in_progress' :
+    interviewStatus === 'submitted'   ? 'submitted'   : 'pending'
+
+  // Review URL always includes the current stage so the page opens on the right tab
+  const reviewUrl = `/jobs/${jobId}/candidates/${app.id}?stage=${app.current_stage_index}`
+
+  // Prominent review button shown outside the menu:
+  // - Stage 1: when candidate has submitted
+  // - Stage 2+: whenever the candidate is active (not rejected/hired)
+  const showReviewBtn =
+    displayStatus === 'submitted' ||
+    (isStage2Plus && app.overall_status === 'active')
+
+  // Review button label varies by context
+  const reviewBtnLabel =
+    isStage2Plus && stageStatus === 'pending' && !isScheduled ? 'Schedule' : 'Review'
+
+  // Resend link: copy Stage 1 screening URL from interview token
+  function handleResendLink() {
+    const token = currentResult?.interviews?.token
+    if (!token) { toast.error('No screening link found.'); return }
+    navigator.clipboard.writeText(`${APP_BASE_URL}/i/${token}`)
+      .then(() => toast.success('Screening link copied.'))
+      .catch(() => toast.error('Could not copy link.'))
+    setMenuOpen(false)
+  }
+
+  // Close on outside click
+  useEffect(() => {
+    if (!menuOpen) return
+    function handleOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [menuOpen])
+
+  function close() { setMenuOpen(false) }
+
+  // Shared review link item used in multiple menu branches
+  function ReviewMenuItem({ label, icon: Icon = Eye }) {
+    return (
+      <Link
+        to={reviewUrl}
+        onClick={close}
+        className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm
+          text-slate-700 hover:bg-slate-50 transition-colors"
+      >
+        <Icon size={14} className="text-slate-400 shrink-0" />
+        {label}
+      </Link>
+    )
+  }
+
+  // Build menu items based on displayStatus + stage type
+  function MenuItems() {
+
+    // ── Hired ──────────────────────────────────────────────────────────────────
+    if (displayStatus === 'hired') {
+      return <ReviewMenuItem label="View review" />
+    }
+
+    // ── Rejected ───────────────────────────────────────────────────────────────
+    if (displayStatus === 'rejected') {
+      return (
+        <>
+          <ReviewMenuItem label="View review" />
+          <div className="my-1 border-t border-slate-100" />
+          <button
+            type="button"
+            onClick={() => { close(); onRestore(app) }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm
+              text-slate-700 hover:bg-slate-50 transition-colors text-left"
+          >
+            <RotateCcw size={14} className="text-slate-400 shrink-0" />
+            Restore candidate
+          </button>
+        </>
+      )
+    }
+
+    // ── Stage 2+ live interview ────────────────────────────────────────────────
+    if (isStage2Plus) {
+      const menuLabel =
+        stageStatus === 'in_progress'              ? 'Review and add notes' :
+        stageStatus === 'passed'                   ? 'View review'          :
+        (stageStatus === 'pending' && isScheduled) ? 'Review and add notes' :
+                                                     'Schedule interview'
+      const MenuIcon = stageStatus === 'pending' && !isScheduled ? Calendar : Eye
+
+      return (
+        <>
+          <ReviewMenuItem label={menuLabel} icon={MenuIcon} />
+          <div className="my-1 border-t border-slate-100" />
+          <button
+            type="button"
+            onClick={() => { close(); onReject(app) }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm
+              text-red-600 hover:bg-red-50 transition-colors text-left"
+          >
+            <X size={14} className="shrink-0" />
+            Reject candidate
+          </button>
+        </>
+      )
+    }
+
+    // ── Stage 1 — pending (not yet submitted) ──────────────────────────────────
+    if (displayStatus === 'pending') {
+      return (
+        <>
+          <ReviewMenuItem label="View candidate" />
+          <div className="my-1 border-t border-slate-100" />
+          <button
+            type="button"
+            onClick={handleResendLink}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm
+              text-slate-700 hover:bg-slate-50 transition-colors text-left"
+          >
+            <Link2 size={14} className="text-slate-400 shrink-0" />
+            Resend link
+          </button>
+          <div className="my-1 border-t border-slate-100" />
+          <button
+            type="button"
+            onClick={() => { close(); onReject(app) }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm
+              text-red-600 hover:bg-red-50 transition-colors text-left"
+          >
+            <X size={14} className="shrink-0" />
+            Reject candidate
+          </button>
+        </>
+      )
+    }
+
+    // ── Stage 1 — submitted ────────────────────────────────────────────────────
+    if (displayStatus === 'submitted') {
+      return (
+        <>
+          <ReviewMenuItem label="Review" />
+          {!isLastStage && (
+            <>
+              <div className="my-1 border-t border-slate-100" />
+              <button
+                type="button"
+                onClick={() => { close(); onConfirmMoveNext(app, nextStage) }}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm
+                  text-slate-700 hover:bg-slate-50 transition-colors text-left"
+              >
+                <ArrowRight size={14} className="text-slate-400 shrink-0" />
+                Move to Stage {app.current_stage_index + 1}
+              </button>
+            </>
+          )}
+          {isLastStage && (
+            <>
+              <div className="my-1 border-t border-slate-100" />
+              <button
+                type="button"
+                onClick={() => { close(); onConfirmHire(app) }}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm
+                  text-[#1D9E75] font-semibold hover:bg-[#e6f5ef] transition-colors text-left"
+              >
+                <Award size={14} className="shrink-0" />
+                Mark as hired
+              </button>
+            </>
+          )}
+          <div className="my-1 border-t border-slate-100" />
+          <button
+            type="button"
+            onClick={() => { close(); onReject(app) }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm
+              text-red-600 hover:bg-red-50 transition-colors text-left"
+          >
+            <X size={14} className="shrink-0" />
+            Reject candidate
+          </button>
+        </>
+      )
+    }
+
+    // ── passed / failed / in_progress (Stage 1 after move) ────────────────────
+    return (
+      <>
+        <ReviewMenuItem label="View review" />
+        {displayStatus === 'passed' && isLastStage && (
+          <>
+            <div className="my-1 border-t border-slate-100" />
+            <button
+              type="button"
+              onClick={() => { close(); onConfirmHire(app) }}
+              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm
+                text-[#1D9E75] font-semibold hover:bg-[#e6f5ef] transition-colors text-left"
+            >
+              <Award size={14} className="shrink-0" />
+              Mark as hired
+            </button>
+          </>
+        )}
+        <div className="my-1 border-t border-slate-100" />
+        <button
+          type="button"
+          onClick={() => { close(); onReject(app) }}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm
+            text-red-600 hover:bg-red-50 transition-colors text-left"
+        >
+          <X size={14} className="shrink-0" />
+          Reject candidate
+        </button>
+      </>
+    )
+  }
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4
@@ -472,62 +695,56 @@ function CandidateRow({ app, stages, jobId, onReject, onMoveNext, onHire, reject
               })}
             </span>
           )}
+          {isStage2Plus && isScheduled && currentResult?.scheduled_at && (
+            <span className="text-xs text-slate-400">
+              Scheduled{' '}
+              {new Date(currentResult.scheduled_at).toLocaleDateString('en-IN', {
+                day: 'numeric', month: 'short', year: 'numeric',
+              })}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2 flex-wrap shrink-0">
-        <Link
-          to={`/jobs/${jobId}/candidates/${app.id}`}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200
-            bg-white text-slate-600 text-xs font-semibold
-            hover:bg-slate-50 hover:border-slate-300 transition-colors"
-        >
-          Review
-          <ChevronRight size={11} />
-        </Link>
+      {/* Right-side actions */}
+      <div className="flex items-center gap-2 shrink-0">
 
-        {showMoveNext && (
-          <button
-            type="button"
-            onClick={() => onMoveNext(app, nextStage)}
-            disabled={movingNext === app.id}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg
-              bg-[#e6f5ef] hover:bg-[#d0eddf] text-[#1D9E75] text-xs font-semibold
-              transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        {/* Prominent review / schedule button */}
+        {showReviewBtn && (
+          <Link
+            to={reviewUrl}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200
+              bg-white text-slate-700 text-xs font-semibold
+              hover:bg-slate-50 hover:border-slate-300 transition-colors"
           >
-            {movingNext === app.id && (
-              <span className="w-3 h-3 border border-[#1D9E75]/40 border-t-[#1D9E75] rounded-full animate-spin" />
-            )}
-            Move to Stage {app.current_stage_index + 1}
-          </button>
+            {isStage2Plus && stageStatus === 'pending' && !isScheduled
+              ? <Calendar size={12} />
+              : <Eye size={12} />}
+            {reviewBtnLabel}
+          </Link>
         )}
 
-        {showHire && (
+        {/* Three-dot menu — always shown */}
+        <div className="relative" ref={menuRef}>
           <button
             type="button"
-            onClick={() => onHire(app)}
-            disabled={movingNext === app.id}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg
-              bg-[#1D9E75] hover:bg-[#178a63] text-white text-xs font-semibold
-              transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            onClick={() => setMenuOpen(v => !v)}
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors
+              ${menuOpen
+                ? 'bg-slate-100 text-slate-700'
+                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}
+            aria-label="Candidate actions"
           >
-            Mark as hired
+            <MoreHorizontal size={16} />
           </button>
-        )}
 
-        {showReject && (
-          <button
-            type="button"
-            onClick={() => onReject(app)}
-            disabled={rejecting === app.id}
-            className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-red-600
-              hover:bg-red-50 text-xs font-semibold transition-colors
-              disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            Reject
-          </button>
-        )}
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-52 bg-white rounded-xl
+              border border-slate-200 shadow-lg z-20 overflow-hidden py-1">
+              <MenuItems />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -554,9 +771,12 @@ export default function JobPipelinePage() {
 
   // Modals / actions
   const [showAddCandidate, setShowAddCandidate] = useState(false)
-  const [rejectTarget,     setRejectTarget]     = useState(null)
-  const [rejecting,        setRejecting]        = useState(null)  // app.id
-  const [movingNext,       setMovingNext]       = useState(null)  // app.id
+  const [rejectTarget,     setRejectTarget]     = useState(null)   // app | null
+  const [rejecting,        setRejecting]        = useState(false)
+  const [confirmMoveNext,  setConfirmMoveNext]  = useState(null)   // { app, nextStage } | null
+  const [executingMove,    setExecutingMove]    = useState(false)
+  const [confirmHire,      setConfirmHire]      = useState(null)   // app | null
+  const [executingHire,    setExecutingHire]    = useState(false)
 
   // Toggle
   const [confirmToggle, setConfirmToggle] = useState(false)
@@ -597,7 +817,7 @@ export default function JobPipelinePage() {
             id, current_stage_index, overall_status, created_at,
             candidates ( id, name, email, phone ),
             stage_results (
-              id, stage_id, status, interview_id,
+              id, stage_id, status, interview_id, scheduled_at,
               interviews ( id, status, token, submitted_at )
             )
           `)
@@ -647,9 +867,9 @@ export default function JobPipelinePage() {
 
   // ── Reject ──────────────────────────────────────────────────────────────────
 
-  async function confirmReject() {
+  async function executeReject() {
     if (!rejectTarget) return
-    setRejecting(rejectTarget.id)
+    setRejecting(true)
     try {
       const { error } = await supabase
         .from('candidate_applications')
@@ -663,15 +883,17 @@ export default function JobPipelinePage() {
     } catch {
       toast.error('Failed to reject candidate.')
     } finally {
-      setRejecting(null)
+      setRejecting(false)
       setRejectTarget(null)
     }
   }
 
   // ── Move to next stage ──────────────────────────────────────────────────────
 
-  async function handleMoveNext(app, nextStage) {
-    setMovingNext(app.id)
+  async function executeMoveNext() {
+    if (!confirmMoveNext) return
+    const { app, nextStage } = confirmMoveNext
+    setExecutingMove(true)
     try {
       const { error: updateErr } = await supabase
         .from('candidate_applications')
@@ -689,28 +911,49 @@ export default function JobPipelinePage() {
     } catch {
       toast.error('Failed to move candidate.')
     } finally {
-      setMovingNext(null)
+      setExecutingMove(false)
+      setConfirmMoveNext(null)
+    }
+  }
+
+  // ── Restore rejected candidate ──────────────────────────────────────────────
+
+  async function handleRestore(app) {
+    try {
+      const { error } = await supabase
+        .from('candidate_applications')
+        .update({ overall_status: 'active' })
+        .eq('id', app.id)
+      if (error) throw error
+      setApplications(prev =>
+        prev.map(a => a.id === app.id ? { ...a, overall_status: 'active' } : a)
+      )
+      toast.success('Candidate restored.')
+    } catch {
+      toast.error('Failed to restore candidate.')
     }
   }
 
   // ── Mark as hired ───────────────────────────────────────────────────────────
 
-  async function handleHire(app) {
-    setMovingNext(app.id)
+  async function executeHire() {
+    if (!confirmHire) return
+    setExecutingHire(true)
     try {
       const { error } = await supabase
         .from('candidate_applications')
         .update({ overall_status: 'hired' })
-        .eq('id', app.id)
+        .eq('id', confirmHire.id)
       if (error) throw error
       setApplications(prev =>
-        prev.map(a => a.id === app.id ? { ...a, overall_status: 'hired' } : a)
+        prev.map(a => a.id === confirmHire.id ? { ...a, overall_status: 'hired' } : a)
       )
       toast.success('Candidate marked as hired!')
     } catch {
       toast.error('Failed to update status.')
     } finally {
-      setMovingNext(null)
+      setExecutingHire(false)
+      setConfirmHire(null)
     }
   }
 
@@ -931,10 +1174,9 @@ export default function JobPipelinePage() {
                 stages={stages}
                 jobId={jobId}
                 onReject={setRejectTarget}
-                onMoveNext={handleMoveNext}
-                onHire={handleHire}
-                rejecting={rejecting}
-                movingNext={movingNext}
+                onRestore={handleRestore}
+                onConfirmMoveNext={(a, s) => setConfirmMoveNext({ app: a, nextStage: s })}
+                onConfirmHire={setConfirmHire}
               />
             ))}
           </div>
@@ -960,9 +1202,35 @@ export default function JobPipelinePage() {
           body="This will end their application. This action cannot be undone."
           confirmLabel="Reject candidate"
           variant="danger"
-          loading={rejecting === rejectTarget.id}
-          onConfirm={confirmReject}
+          loading={rejecting}
+          onConfirm={executeReject}
           onCancel={() => setRejectTarget(null)}
+        />
+      )}
+
+      {/* ── Move to next stage confirm ───────────────────────────────────── */}
+      {confirmMoveNext && (
+        <ConfirmModal
+          title={`Move ${confirmMoveNext.app.candidates?.name} to Stage ${confirmMoveNext.app.current_stage_index + 1}?`}
+          body={`They will be moved to "${confirmMoveNext.nextStage?.name}". A new stage record will be created.`}
+          confirmLabel="Move candidate"
+          variant="warning"
+          loading={executingMove}
+          onConfirm={executeMoveNext}
+          onCancel={() => setConfirmMoveNext(null)}
+        />
+      )}
+
+      {/* ── Mark as hired confirm ────────────────────────────────────────── */}
+      {confirmHire && (
+        <ConfirmModal
+          title={`Mark ${confirmHire.candidates?.name} as hired?`}
+          body="Their application will be marked as hired. This can be reviewed later if needed."
+          confirmLabel="Mark as hired"
+          variant="warning"
+          loading={executingHire}
+          onConfirm={executeHire}
+          onCancel={() => setConfirmHire(null)}
         />
       )}
 
