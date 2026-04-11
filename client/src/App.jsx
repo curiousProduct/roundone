@@ -10,6 +10,7 @@ import CandidateReviewPage from './pages/CandidateReviewPage'
 import InterviewPage from './pages/InterviewPage'
 import SubmittedPage from './pages/SubmittedPage'
 import SetPasswordPage from './pages/SetPasswordPage'
+import JobOpeningFormPage from './pages/JobOpeningFormPage'
 
 export default function App() {
   return (
@@ -58,6 +59,24 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          {/* Job openings */}
+          <Route
+            path="/jobs/new"
+            element={
+              <ProtectedRoute>
+                <JobOpeningFormPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/jobs/:id/edit"
+            element={
+              <ProtectedRoute>
+                <JobOpeningFormPage />
+              </ProtectedRoute>
+            }
+          />
+
           {/* Set password — auth required, handled inline in the page */}
           <Route path="/set-password" element={<SetPasswordPage />} />
 
