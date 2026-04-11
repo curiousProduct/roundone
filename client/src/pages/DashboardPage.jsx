@@ -6,9 +6,16 @@ import supabase from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import NavBar from '../components/NavBar'
 
-// ── Confirm modal ─────────────────────────────────────────────────────────────
+const DESC_LIMIT = 100
 
-function ConfirmModal({ title, body, confirmLabel, onConfirm, onCancel, loading }) {
+// ── Confirm modal ─────────────────────────────────────────────────────────────
+// variant: 'danger' (red) | 'warning' (amber)
+
+function ConfirmModal({ title, body, confirmLabel, variant = 'danger', onConfirm, onCancel, loading }) {
+  const btnCls = variant === 'warning'
+    ? 'bg-amber-500 hover:bg-amber-600'
+    : 'bg-red-500 hover:bg-red-600'
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4
       bg-black/40 backdrop-blur-sm">
@@ -33,22 +40,51 @@ function ConfirmModal({ title, body, confirmLabel, onConfirm, onCancel, loading 
             type="button"
             onClick={onConfirm}
             disabled={loading}
-            className="flex-1 py-2.5 rounded-lg bg-red-500 hover:bg-red-600 text-white
-              text-sm font-semibold transition-colors shadow-sm
-              disabled:opacity-60 disabled:cursor-not-allowed
-              flex items-center justify-center gap-2"
+            className={`flex-1 py-2.5 rounded-lg text-white text-sm font-semibold
+              transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed
+              flex items-center justify-center gap-2 ${btnCls}`}
           >
             {loading ? (
               <>
                 <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white
                   rounded-full animate-spin" />
-                Deleting…
+                Working…
               </>
             ) : confirmLabel}
           </button>
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Toggle switch ─────────────────────────────────────────────────────────────
+
+function ToggleSwitch({ isActive, onToggle, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      className="flex items-center gap-2 shrink-0 group"
+      aria-label={isActive ? 'Close job' : 'Reopen job'}
+    >
+      {/* Pill track */}
+      <div className={`relative w-10 h-6 rounded-full transition-colors duration-200
+        ${isActive ? 'bg-[#1D9E75]' : 'bg-slate-300'}
+        ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer group-hover:opacity-90'}`}
+      >
+        {/* Thumb */}
+        <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm
+          transition-transform duration-200
+          ${isActive ? 'translate-x-5' : 'translate-x-1'}`}
+        />
+      </div>
+      <span className={`text-xs font-semibold transition-colors
+        ${isActive ? 'text-[#1D9E75]' : 'text-slate-400'}`}>
+        {isActive ? 'Active' : 'Closed'}
+      </span>
+    </button>
   )
 }
 
@@ -80,14 +116,17 @@ function StageStatRow({ stage, invited, primary, primaryLabel }) {
 
 // ── Job opening card ──────────────────────────────────────────────────────────
 
-function JobOpeningCard({ job, stage1StatsMap, stageStatsMap, onDelete }) {
+function JobOpeningCard({ job, stage1StatsMap, stageStatsMap, onToggle, onDelete, toggling }) {
+  const [showFullDesc, setShowFullDesc] = useState(false)
+
   const stageCount     = job.pipeline_stages?.length ?? 0
   const candidateCount = job.candidate_applications?.length ?? 0
+  const desc           = job.description ?? ''
+  const descLong       = desc.length > DESC_LIMIT
 
   const sortedStages = [...(job.pipeline_stages ?? [])]
     .sort((a, b) => a.order_index - b.order_index)
 
-  // Build only the rows that have data
   const statsRows = sortedStages.flatMap(stage => {
     if (stage.order_index === 1) {
       if (!stage.template_id) return []
@@ -105,52 +144,80 @@ function JobOpeningCard({ job, stage1StatsMap, stageStatsMap, onDelete }) {
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden
       hover:shadow-md hover:border-slate-300 transition-all">
 
-      {/* Body */}
-      <div className="p-5 flex flex-col gap-4">
+      {/* ── Card body ───────────────────────────────────────────────────── */}
+      <div className="p-5 flex flex-col gap-3.5">
 
-        {/* Title + status badge */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="font-bold text-slate-900 tracking-tight truncate">
-              {job.title}
-            </h3>
-            <p className="mt-1 text-xs text-slate-400">
-              Created {new Date(job.created_at).toLocaleDateString('en-IN', {
-                day: 'numeric', month: 'short', year: 'numeric',
-              })}
-            </p>
-          </div>
-          <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full
-            text-xs font-semibold border
-            ${job.is_active
-              ? 'bg-green-50 text-green-700 border-green-200'
-              : 'bg-slate-100 text-slate-500 border-slate-200'
-            }`}>
-            {job.is_active ? 'Active' : 'Closed'}
+        {/* Header: title + toggle */}
+        <div className="flex items-start justify-between gap-4">
+          <h3 className="font-bold text-slate-900 tracking-tight leading-snug">
+            {job.title}
+          </h3>
+          <ToggleSwitch
+            isActive={job.is_active}
+            onToggle={() => onToggle(job)}
+            disabled={toggling}
+          />
+        </div>
+
+        {/* Description */}
+        {desc && (
+          <p className="text-sm text-slate-500 leading-relaxed">
+            {!showFullDesc && descLong ? (
+              <>
+                {desc.slice(0, DESC_LIMIT)}…{' '}
+                <button
+                  type="button"
+                  onClick={() => setShowFullDesc(true)}
+                  className="text-[#005ea4] text-xs font-semibold hover:underline"
+                >
+                  Show more
+                </button>
+              </>
+            ) : (
+              <>
+                {desc}
+                {descLong && (
+                  <>{' '}
+                    <button
+                      type="button"
+                      onClick={() => setShowFullDesc(false)}
+                      className="text-[#005ea4] text-xs font-semibold hover:underline"
+                    >
+                      Show less
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </p>
+        )}
+
+        {/* Meta row: date · stages · candidates */}
+        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
+          <span>
+            Created {new Date(job.created_at).toLocaleDateString('en-IN', {
+              day: 'numeric', month: 'short', year: 'numeric',
+            })}
+          </span>
+          <span className="text-slate-200">·</span>
+          <span className="flex items-center gap-1">
+            <Layers size={11} className="text-slate-300" />
+            <span className="font-medium text-slate-500">
+              {stageCount} {stageCount === 1 ? 'stage' : 'stages'}
+            </span>
+          </span>
+          <span className="text-slate-200">·</span>
+          <span className="flex items-center gap-1">
+            <Users size={11} className="text-slate-300" />
+            <span className="font-medium text-slate-500">
+              {candidateCount} {candidateCount === 1 ? 'candidate' : 'candidates'}
+            </span>
           </span>
         </div>
 
-        {/* Summary counts */}
-        <div className="flex items-center gap-5">
-          <div className="flex items-center gap-1.5">
-            <Layers size={13} className="text-slate-400" />
-            <span className="text-sm font-bold text-slate-700">{stageCount}</span>
-            <span className="text-xs text-slate-400">
-              {stageCount === 1 ? 'stage' : 'stages'}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Users size={13} className="text-slate-400" />
-            <span className="text-sm font-bold text-slate-700">{candidateCount}</span>
-            <span className="text-xs text-slate-400">
-              {candidateCount === 1 ? 'candidate' : 'candidates'}
-            </span>
-          </div>
-        </div>
-
-        {/* Progressive stage stats — only shown when data exists */}
+        {/* Progressive stage stats */}
         {statsRows.length > 0 && (
-          <div className="border-t border-slate-100 pt-4 flex flex-col gap-2.5">
+          <div className="border-t border-slate-100 pt-3.5 flex flex-col gap-2.5">
             {statsRows.map(row => (
               <StageStatRow
                 key={row.stage.id}
@@ -164,7 +231,7 @@ function JobOpeningCard({ job, stage1StatsMap, stageStatsMap, onDelete }) {
         )}
       </div>
 
-      {/* Footer */}
+      {/* ── Footer ──────────────────────────────────────────────────────── */}
       <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60
         flex items-center justify-between gap-2">
 
@@ -178,7 +245,7 @@ function JobOpeningCard({ job, stage1StatsMap, stageStatsMap, onDelete }) {
           <ChevronRight size={12} />
         </Link>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <Link
             to={`/jobs/${job.id}/edit`}
             className="p-2 rounded-lg text-slate-400 hover:text-slate-700
@@ -239,19 +306,28 @@ export default function DashboardPage() {
   const [stage1StatsMap, setStage1StatsMap] = useState({})
   const [stageStatsMap,  setStageStatsMap]  = useState({})
   const [loading,        setLoading]        = useState(true)
-  const [deleteTarget,   setDeleteTarget]   = useState(null)   // job | null
-  const [deleting,       setDeleting]       = useState(false)
+
+  // Delete flow
+  const [deleteTarget, setDeleteTarget] = useState(null)   // job | null
+  const [deleting,     setDeleting]     = useState(false)
+
+  // Toggle flow
+  const [confirmToggle, setConfirmToggle] = useState(null)  // job to close | null
+  const [togglingId,    setTogglingId]    = useState(null)  // job.id | null
 
   useEffect(() => { fetchDashboard() }, [])
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Data fetch
+  // ─────────────────────────────────────────────────────────────────────────
 
   async function fetchDashboard() {
     setLoading(true)
     try {
-      // ── 1. Job openings with stages + application counts
       const { data: jobs, error: jobErr } = await supabase
         .from('job_openings')
         .select(`
-          id, title, is_active, created_at,
+          id, title, description, is_active, created_at,
           pipeline_stages ( id, order_index, name, type, template_id ),
           candidate_applications ( id )
         `)
@@ -261,7 +337,6 @@ export default function DashboardPage() {
       if (jobErr) throw jobErr
       const jobList = jobs ?? []
 
-      // ── 2. Collect IDs for batch stats queries
       const stage1TemplateIds = [
         ...new Set(
           jobList
@@ -276,7 +351,6 @@ export default function DashboardPage() {
         .filter(s => s.order_index > 1)
         .map(s => s.id)
 
-      // ── 3. Batch fetch stats in parallel
       const [interviewsRes, stageResultsRes] = await Promise.all([
         stage1TemplateIds.length > 0
           ? supabase
@@ -292,7 +366,6 @@ export default function DashboardPage() {
           : { data: [] },
       ])
 
-      // ── 4. Build stage1StatsMap: { [templateId]: { invited, submitted } }
       const s1Map = {}
       for (const inv of interviewsRes.data ?? []) {
         if (!s1Map[inv.template_id]) s1Map[inv.template_id] = { invited: 0, submitted: 0 }
@@ -300,7 +373,6 @@ export default function DashboardPage() {
         if (inv.status === 'submitted') s1Map[inv.template_id].submitted++
       }
 
-      // ── 5. Build stageStatsMap: { [stageId]: { invited, completed } }
       const srMap = {}
       for (const sr of stageResultsRes.data ?? []) {
         if (!srMap[sr.stage_id]) srMap[sr.stage_id] = { invited: 0, completed: 0 }
@@ -319,6 +391,10 @@ export default function DashboardPage() {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Delete
+  // ─────────────────────────────────────────────────────────────────────────
+
   async function handleDeleteJob() {
     if (!deleteTarget) return
     setDeleting(true)
@@ -328,9 +404,7 @@ export default function DashboardPage() {
         .delete()
         .eq('id', deleteTarget.id)
         .eq('created_by', user.id)
-
       if (error) throw error
-
       setJobOpenings(prev => prev.filter(j => j.id !== deleteTarget.id))
       toast.success('Job opening deleted.')
     } catch {
@@ -340,6 +414,46 @@ export default function DashboardPage() {
       setDeleteTarget(null)
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Toggle active / closed
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function handleToggle(job) {
+    if (job.is_active) {
+      // Closing requires confirmation
+      setConfirmToggle(job)
+    } else {
+      // Reopening: no confirmation needed
+      executeToggle(job)
+    }
+  }
+
+  async function executeToggle(job) {
+    const newValue = !job.is_active
+    setTogglingId(job.id)
+    try {
+      const { error } = await supabase
+        .from('job_openings')
+        .update({ is_active: newValue })
+        .eq('id', job.id)
+        .eq('created_by', user.id)
+      if (error) throw error
+      setJobOpenings(prev =>
+        prev.map(j => j.id === job.id ? { ...j, is_active: newValue } : j)
+      )
+      toast.success(newValue ? 'Job reopened.' : 'Job closed.')
+    } catch {
+      toast.error('Failed to update job status.')
+    } finally {
+      setTogglingId(null)
+      setConfirmToggle(null)
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-[#f5f7fa]">
@@ -386,19 +500,35 @@ export default function DashboardPage() {
                 job={job}
                 stage1StatsMap={stage1StatsMap}
                 stageStatsMap={stageStatsMap}
+                onToggle={handleToggle}
                 onDelete={setDeleteTarget}
+                toggling={togglingId === job.id}
               />
             ))}
           </div>
         )}
       </main>
 
-      {/* Delete confirmation */}
+      {/* Confirm close toggle */}
+      {confirmToggle && (
+        <ConfirmModal
+          title="Close this job opening?"
+          body="Candidates won't be able to be added to new stages. You can reopen it at any time."
+          confirmLabel="Close job"
+          variant="warning"
+          loading={togglingId === confirmToggle.id}
+          onConfirm={() => executeToggle(confirmToggle)}
+          onCancel={() => setConfirmToggle(null)}
+        />
+      )}
+
+      {/* Confirm delete */}
       {deleteTarget && (
         <ConfirmModal
           title="Delete this job opening?"
-          body="All candidate applications and stage data will be permanently deleted. This cannot be undone."
+          body="Are you sure you want to delete this job opening? All candidate data will be permanently deleted."
           confirmLabel="Delete"
+          variant="danger"
           loading={deleting}
           onConfirm={handleDeleteJob}
           onCancel={() => setDeleteTarget(null)}
