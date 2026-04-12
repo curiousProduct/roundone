@@ -774,6 +774,9 @@ function CandidateRow({ app, stages, jobId, onReject, onRestore, onConfirmMoveNe
     displayStatus === 'submitted' ||
     (isStage2Plus && app.overall_status === 'active')
 
+  // When Review button is not shown, show View Candidate as the prominent CTA instead
+  const showViewCandidateBtn = !showReviewBtn
+
   // Review button label varies by context
   const reviewBtnLabel =
     isStage2Plus && stageStatus === 'pending' && !isScheduled ? 'Schedule' : 'Review'
@@ -855,6 +858,8 @@ function CandidateRow({ app, stages, jobId, onReject, onRestore, onConfirmMoveNe
         <>
           <ReviewMenuItem label={menuLabel} icon={MenuIcon} />
           <div className="my-1 border-t border-slate-100" />
+          <ReviewMenuItem label="View candidate" />
+          <div className="my-1 border-t border-slate-100" />
           <button
             type="button"
             onClick={() => { close(); onReject(app) }}
@@ -872,8 +877,6 @@ function CandidateRow({ app, stages, jobId, onReject, onRestore, onConfirmMoveNe
     if (displayStatus === 'pending') {
       return (
         <>
-          <ReviewMenuItem label="View candidate" />
-          <div className="my-1 border-t border-slate-100" />
           <button
             type="button"
             onClick={handleResendLink}
@@ -902,6 +905,8 @@ function CandidateRow({ app, stages, jobId, onReject, onRestore, onConfirmMoveNe
       return (
         <>
           <ReviewMenuItem label="Review" />
+          <div className="my-1 border-t border-slate-100" />
+          <ReviewMenuItem label="View candidate" />
           {!isLastStage && (
             <>
               <div className="my-1 border-t border-slate-100" />
@@ -1057,6 +1062,19 @@ function CandidateRow({ app, stages, jobId, onReject, onRestore, onConfirmMoveNe
               ? <Calendar size={12} />
               : <Eye size={12} />}
             {reviewBtnLabel}
+          </Link>
+        )}
+
+        {/* View candidate CTA — shown when Review button is not available */}
+        {showViewCandidateBtn && (
+          <Link
+            to={reviewUrl}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200
+              bg-white text-slate-700 text-xs font-semibold
+              hover:bg-slate-50 hover:border-slate-300 transition-colors"
+          >
+            <Eye size={12} />
+            View candidate
           </Link>
         )}
 

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, ChevronLeft, ChevronRight,
   Star, Copy, Check, Lock, Award, Clock,
-  CheckCircle2, ExternalLink, Mail, Send, FileText,
+  CheckCircle2, ExternalLink, Mail, Send, FileText, Pencil,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import supabase from '../lib/supabase'
@@ -512,6 +512,11 @@ export default function CandidatePipelineReviewPage() {
   const [executingUnder,   setExecutingUnder]   = useState(false)
   const [showAllSkills,    setShowAllSkills]    = useState(false)
 
+  // Candidate profile edit mode
+  const [editingProfile,   setEditingProfile]   = useState(false)
+  const [editFields,       setEditFields]       = useState({})
+  const [savingProfile,    setSavingProfile]    = useState(false)
+
   useEffect(() => { fetchAll() }, [appId])   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync per-stage fields when the viewed stage changes
@@ -818,6 +823,50 @@ export default function CandidatePipelineReviewPage() {
     )
   }
 
+  function startEditProfile() {
+    setEditFields({
+      name:                 candidate?.name ?? '',
+      email:                candidate?.email ?? '',
+      phone:                candidate?.phone ?? '',
+      current_role:         candidate?.current_role ?? '',
+      current_company:      candidate?.current_company ?? '',
+      years_of_experience:  candidate?.years_of_experience ?? '',
+      education:            candidate?.education ?? '',
+      skills:               (candidate?.skills ?? []).join(', '),
+    })
+    setEditingProfile(true)
+  }
+
+  async function saveProfile() {
+    setSavingProfile(true)
+    try {
+      const skillsArr = editFields.skills
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+      const { error } = await supabase.from('candidates')
+        .update({
+          name:                editFields.name.trim(),
+          email:               editFields.email.trim(),
+          phone:               editFields.phone.trim() || null,
+          current_role:        editFields.current_role.trim() || null,
+          current_company:     editFields.current_company.trim() || null,
+          years_of_experience: editFields.years_of_experience !== '' ? Number(editFields.years_of_experience) : null,
+          education:           editFields.education.trim() || null,
+          skills:              skillsArr.length ? skillsArr : null,
+        })
+        .eq('id', candidate.id)
+      if (error) throw error
+      toast.success('Candidate details updated.')
+      setEditingProfile(false)
+      await fetchAll()
+    } catch {
+      toast.error('Failed to save changes.')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -964,87 +1013,164 @@ export default function CandidatePipelineReviewPage() {
               <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Candidate profile</h2>
-                  {candidate?.resume_url && (
-                    <a href={candidate.resume_url} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg
-                        border border-slate-200 text-xs font-semibold text-slate-600
-                        hover:bg-slate-50 hover:border-slate-300 transition-colors shrink-0">
-                      <FileText size={12} />
-                      View resume
-                    </a>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-3 mb-5">
-                  {[
-                    ['Name',    candidate?.name],
-                    ['Email',   candidate?.email],
-                    candidate?.phone && ['Phone', candidate.phone],
-                    ['Applied', fmtDate(app?.created_at)],
-                    ['Stage',   currentStage ? `Stage ${currentStage.order_index} — ${currentStage.name}` : '—'],
-                    ['Status',  <OverallBadge key="ob" status={overallStatus} />],
-                  ].filter(Boolean).map(([label, val]) => (
-                    <div key={label}>
-                      <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-0.5">{label}</span>
-                      <span className="text-sm text-slate-800 font-medium">{val}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Extended profile fields */}
-                {(candidate?.current_role || candidate?.current_company ||
-                  candidate?.years_of_experience != null ||
-                  candidate?.skills?.length || candidate?.education) && (
-                  <div className="border-t border-slate-100 pt-4 flex flex-col gap-3">
-
-                    {/* Role / company / experience */}
-                    {(candidate?.current_role || candidate?.current_company || candidate?.years_of_experience != null) && (
-                      <div>
-                        <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-1">Background</span>
-                        <p className="text-sm text-slate-800 font-medium leading-snug">
-                          {[
-                            candidate?.current_role && candidate?.current_company
-                              ? `${candidate.current_role} at ${candidate.current_company}`
-                              : candidate?.current_role || candidate?.current_company,
-                            candidate?.years_of_experience != null
-                              ? `${candidate.years_of_experience} years experience`
-                              : null,
-                          ].filter(Boolean).join(' · ')}
-                        </p>
-                      </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {candidate?.resume_url && (
+                      <a href={candidate.resume_url} target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg
+                          border border-slate-200 text-xs font-semibold text-slate-600
+                          hover:bg-slate-50 hover:border-slate-300 transition-colors">
+                        <FileText size={12} />
+                        View resume
+                      </a>
                     )}
-
-                    {/* Education */}
-                    {candidate?.education && (
-                      <div>
-                        <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-1">Education</span>
-                        <p className="text-sm text-slate-800 font-medium leading-snug">{candidate.education}</p>
-                      </div>
-                    )}
-
-                    {/* Skills pills */}
-                    {candidate?.skills?.length > 0 && (
-                      <div>
-                        <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-2">Skills</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {(showAllSkills ? candidate.skills : candidate.skills.slice(0, 8)).map(skill => (
-                            <span key={skill}
-                              className="inline-flex items-center px-2.5 py-0.5 rounded-full
-                                bg-[#e6f0f9] text-[#005ea4] text-xs font-medium border border-[#b3d0ea]">
-                              {skill}
-                            </span>
-                          ))}
-                          {!showAllSkills && candidate.skills.length > 8 && (
-                            <button type="button" onClick={() => setShowAllSkills(true)}
-                              className="inline-flex items-center px-2.5 py-0.5 rounded-full
-                                border border-slate-200 text-xs font-medium text-slate-500
-                                hover:bg-slate-50 transition-colors">
-                              +{candidate.skills.length - 8} more
-                            </button>
-                          )}
-                        </div>
-                      </div>
+                    {!editingProfile && (
+                      <button type="button" onClick={startEditProfile}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg
+                          border border-slate-200 text-xs font-semibold text-slate-600
+                          hover:bg-slate-50 hover:border-slate-300 transition-colors">
+                        <Pencil size={12} />
+                        Edit
+                      </button>
                     )}
                   </div>
+                </div>
+
+                {editingProfile ? (
+                  /* ── Edit mode ── */
+                  <div className="flex flex-col gap-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        ['Name',           'name',           'text'],
+                        ['Email',          'email',          'email'],
+                        ['Phone',          'phone',          'tel'],
+                        ['Current role',   'current_role',   'text'],
+                        ['Current company','current_company','text'],
+                        ['Years of exp.',  'years_of_experience', 'number'],
+                      ].map(([label, field, type]) => (
+                        <div key={field}>
+                          <label className="text-[11px] text-slate-400 uppercase tracking-wide block mb-1">{label}</label>
+                          <input
+                            type={type}
+                            value={editFields[field]}
+                            onChange={e => setEditFields(f => ({ ...f, [field]: e.target.value }))}
+                            className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800
+                              focus:outline-none focus:ring-2 focus:ring-[#005ea4]/20 focus:border-[#005ea4]"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-slate-400 uppercase tracking-wide block mb-1">Education</label>
+                      <input
+                        type="text"
+                        value={editFields.education}
+                        onChange={e => setEditFields(f => ({ ...f, education: e.target.value }))}
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800
+                          focus:outline-none focus:ring-2 focus:ring-[#005ea4]/20 focus:border-[#005ea4]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-slate-400 uppercase tracking-wide block mb-1">Skills <span className="text-slate-300 font-normal normal-case">(comma separated)</span></label>
+                      <input
+                        type="text"
+                        value={editFields.skills}
+                        onChange={e => setEditFields(f => ({ ...f, skills: e.target.value }))}
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800
+                          focus:outline-none focus:ring-2 focus:ring-[#005ea4]/20 focus:border-[#005ea4]"
+                        placeholder="React, Node.js, SQL"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button type="button" onClick={saveProfile} disabled={savingProfile}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#005ea4] text-white
+                          text-xs font-semibold hover:bg-[#004d8a] transition-colors disabled:opacity-60">
+                        {savingProfile
+                          ? <><span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />Saving…</>
+                          : 'Save changes'}
+                      </button>
+                      <button type="button" onClick={() => setEditingProfile(false)} disabled={savingProfile}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200
+                          text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-60">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* ── Read mode ── */
+                  <>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-3 mb-5">
+                      {[
+                        ['Name',    candidate?.name],
+                        ['Email',   candidate?.email],
+                        candidate?.phone && ['Phone', candidate.phone],
+                        ['Applied', fmtDate(app?.created_at)],
+                        ['Stage',   currentStage ? `Stage ${currentStage.order_index} — ${currentStage.name}` : '—'],
+                        ['Status',  <OverallBadge key="ob" status={overallStatus} />],
+                      ].filter(Boolean).map(([label, val]) => (
+                        <div key={label}>
+                          <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-0.5">{label}</span>
+                          <span className="text-sm text-slate-800 font-medium">{val}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Extended profile fields */}
+                    {(candidate?.current_role || candidate?.current_company ||
+                      candidate?.years_of_experience != null ||
+                      candidate?.skills?.length || candidate?.education) && (
+                      <div className="border-t border-slate-100 pt-4 flex flex-col gap-3">
+
+                        {/* Role / company / experience */}
+                        {(candidate?.current_role || candidate?.current_company || candidate?.years_of_experience != null) && (
+                          <div>
+                            <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-1">Background</span>
+                            <p className="text-sm text-slate-800 font-medium leading-snug">
+                              {[
+                                candidate?.current_role && candidate?.current_company
+                                  ? `${candidate.current_role} at ${candidate.current_company}`
+                                  : candidate?.current_role || candidate?.current_company,
+                                candidate?.years_of_experience != null
+                                  ? `${candidate.years_of_experience} years experience`
+                                  : null,
+                              ].filter(Boolean).join(' · ')}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Education */}
+                        {candidate?.education && (
+                          <div>
+                            <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-1">Education</span>
+                            <p className="text-sm text-slate-800 font-medium leading-snug">{candidate.education}</p>
+                          </div>
+                        )}
+
+                        {/* Skills pills */}
+                        {candidate?.skills?.length > 0 && (
+                          <div>
+                            <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-2">Skills</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {(showAllSkills ? candidate.skills : candidate.skills.slice(0, 8)).map(skill => (
+                                <span key={skill}
+                                  className="inline-flex items-center px-2.5 py-0.5 rounded-full
+                                    bg-[#e6f0f9] text-[#005ea4] text-xs font-medium border border-[#b3d0ea]">
+                                  {skill}
+                                </span>
+                              ))}
+                              {!showAllSkills && candidate.skills.length > 8 && (
+                                <button type="button" onClick={() => setShowAllSkills(true)}
+                                  className="inline-flex items-center px-2.5 py-0.5 rounded-full
+                                    border border-slate-200 text-xs font-medium text-slate-500
+                                    hover:bg-slate-50 transition-colors">
+                                  +{candidate.skills.length - 8} more
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Mini stage progress */}
