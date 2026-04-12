@@ -2,6 +2,17 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
+import resumeParserRouter from './routes/resumeParser.js'
+
+// ── Startup env validation ──────────────────────────────────────────────────
+const REQUIRED_ENV = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']
+const PLACEHOLDER_RE = /^your-|^\[|^<|^undefined$/i
+for (const key of REQUIRED_ENV) {
+  const val = process.env[key]
+  if (!val || PLACEHOLDER_RE.test(val)) {
+    console.warn(`[startup] WARNING: ${key} is missing or still a placeholder. Storage uploads will fail.`)
+  }
+}
 
 const app = express()
 const PORT = process.env.PORT || 5000
@@ -20,11 +31,8 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'roundone-api' })
 })
 
-// ── Routes (add here as features are built) ─────────────────────────────────
-// import authRoutes from './routes/auth.js'
-// import jobRoutes from './routes/jobs.js'
-// app.use('/api/auth', authRoutes)
-// app.use('/api/jobs', jobRoutes)
+// ── Routes ──────────────────────────────────────────────────────────────────
+app.use('/api', resumeParserRouter)
 
 // ── 404 handler ─────────────────────────────────────────────────────────────
 app.use((req, res) => {

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, ChevronLeft, ChevronRight,
   Star, Copy, Check, Lock, Award, Clock,
-  CheckCircle2, ExternalLink, Mail, Send,
+  CheckCircle2, ExternalLink, Mail, Send, FileText,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import supabase from '../lib/supabase'
@@ -510,6 +510,7 @@ export default function CandidatePipelineReviewPage() {
   const [executingReject,  setExecutingReject]  = useState(false)
   const [executingHire,    setExecutingHire]    = useState(false)
   const [executingUnder,   setExecutingUnder]   = useState(false)
+  const [showAllSkills,    setShowAllSkills]    = useState(false)
 
   useEffect(() => { fetchAll() }, [appId])   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -533,7 +534,7 @@ export default function CandidatePipelineReviewPage() {
           .from('candidate_applications')
           .select(`
             id, current_stage_index, overall_status, created_at,
-            candidates ( id, name, email, phone ),
+            candidates ( id, name, email, phone, current_role, current_company, years_of_experience, skills, education, resume_url ),
             stage_results (
               id, stage_id, status, interview_id,
               interviewer_email, scheduled_at, meet_link,
@@ -961,7 +962,18 @@ export default function CandidatePipelineReviewPage() {
 
               {/* Candidate profile card */}
               <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-                <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-4">Candidate profile</h2>
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Candidate profile</h2>
+                  {candidate?.resume_url && (
+                    <a href={candidate.resume_url} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg
+                        border border-slate-200 text-xs font-semibold text-slate-600
+                        hover:bg-slate-50 hover:border-slate-300 transition-colors shrink-0">
+                      <FileText size={12} />
+                      View resume
+                    </a>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3 mb-5">
                   {[
                     ['Name',    candidate?.name],
@@ -977,6 +989,63 @@ export default function CandidatePipelineReviewPage() {
                     </div>
                   ))}
                 </div>
+
+                {/* Extended profile fields */}
+                {(candidate?.current_role || candidate?.current_company ||
+                  candidate?.years_of_experience != null ||
+                  candidate?.skills?.length || candidate?.education) && (
+                  <div className="border-t border-slate-100 pt-4 flex flex-col gap-3">
+
+                    {/* Role / company / experience */}
+                    {(candidate?.current_role || candidate?.current_company || candidate?.years_of_experience != null) && (
+                      <div>
+                        <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-1">Background</span>
+                        <p className="text-sm text-slate-800 font-medium leading-snug">
+                          {[
+                            candidate?.current_role && candidate?.current_company
+                              ? `${candidate.current_role} at ${candidate.current_company}`
+                              : candidate?.current_role || candidate?.current_company,
+                            candidate?.years_of_experience != null
+                              ? `${candidate.years_of_experience} years experience`
+                              : null,
+                          ].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Education */}
+                    {candidate?.education && (
+                      <div>
+                        <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-1">Education</span>
+                        <p className="text-sm text-slate-800 font-medium leading-snug">{candidate.education}</p>
+                      </div>
+                    )}
+
+                    {/* Skills pills */}
+                    {candidate?.skills?.length > 0 && (
+                      <div>
+                        <span className="text-[11px] text-slate-400 uppercase tracking-wide block mb-2">Skills</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(showAllSkills ? candidate.skills : candidate.skills.slice(0, 8)).map(skill => (
+                            <span key={skill}
+                              className="inline-flex items-center px-2.5 py-0.5 rounded-full
+                                bg-[#e6f0f9] text-[#005ea4] text-xs font-medium border border-[#b3d0ea]">
+                              {skill}
+                            </span>
+                          ))}
+                          {!showAllSkills && candidate.skills.length > 8 && (
+                            <button type="button" onClick={() => setShowAllSkills(true)}
+                              className="inline-flex items-center px-2.5 py-0.5 rounded-full
+                                border border-slate-200 text-xs font-medium text-slate-500
+                                hover:bg-slate-50 transition-colors">
+                              +{candidate.skills.length - 8} more
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Mini stage progress */}
                 <div className="border-t border-slate-100 pt-4">

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, UserPlus, Users,
+  ArrowLeft, UserPlus,
   Copy, Check, MoreHorizontal,
-  Eye, ArrowRight, CheckCircle2, X, Link2, RotateCcw, Award, Calendar,
+  Eye, ArrowRight, X, Link2, RotateCcw, Award, Calendar,
+  UploadCloud, FileText, AlertTriangle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import supabase from '../lib/supabase'
@@ -11,6 +12,7 @@ import { useAuth } from '../context/AuthContext'
 import NavBar from '../components/NavBar'
 
 const APP_BASE_URL = 'https://app.roundone.work'
+const API_BASE     = import.meta.env.VITE_API_URL || ''
 const DESC_LIMIT   = 120
 
 function randomToken() {
@@ -158,38 +160,194 @@ function ShareLinkPanel({ link, candidateName, onClose }) {
 
 // ── Add candidate modal ────────────────────────────────────────────────────────
 
+const INPUT_BASE = `px-3 py-2.5 rounded-lg border text-sm text-slate-900
+  placeholder:text-slate-400 focus:outline-none focus:ring-2
+  focus:ring-[#005ea4]/30 focus:border-[#005ea4] transition-colors w-full`
+
+function parsedStyle(isParsed) {
+  return isParsed
+    ? { borderLeft: '3px solid #005ea4', backgroundColor: 'rgba(0,94,164,0.025)' }
+    : {}
+}
+
+function LowConfWarning() {
+  return (
+    <span title="Please verify this field — auto-fill may be inaccurate"
+      className="shrink-0 text-amber-500 cursor-help">
+      <AlertTriangle size={13} />
+    </span>
+  )
+}
+
+function FieldLabel({ children, optional, lowConf }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+        {children}
+      </label>
+      {optional && <span className="text-xs text-slate-400 font-normal">(optional)</span>}
+      {lowConf && <LowConfWarning />}
+    </div>
+  )
+}
+
 function AddCandidateModal({ job, stages, user, onClose, onAdded }) {
-  const [name,              setName]              = useState('')
-  const [email,             setEmail]             = useState('')
-  const [phone,             setPhone]             = useState('')
-  const [saving,            setSaving]            = useState(false)
-  const [shareLink,         setShareLink]         = useState(null)
-  const [addedName,         setAddedName]         = useState('')
+  // Core form
+  const [name,           setName]           = useState('')
+  const [email,          setEmail]          = useState('')
+  const [phone,          setPhone]          = useState('')
+  const [currentRole,    setCurrentRole]    = useState('')
+  const [currentCompany, setCurrentCompany] = useState('')
+  const [yearsExp,       setYearsExp]       = useState('')
+  const [skills,         setSkills]         = useState([])
+  const [skillInput,     setSkillInput]     = useState('')
+  const [education,      setEducation]      = useState('')
+
+  // Resume state
+  const [resumeFile,   setResumeFile]   = useState(null)
+  const [parsing,      setParsing]      = useState(false)
+  const [parseError,   setParseError]   = useState(false)
+  const [parsedFields, setParsedFields] = useState(new Set())
+  const [nameConf,     setNameConf]     = useState(null)
+  const [emailConf,    setEmailConf]    = useState(null)
+  const [phoneConf,    setPhoneConf]    = useState(null)
+  const [dragOver,     setDragOver]     = useState(false)
+  const fileInputRef = useRef(null)
+
+  // Submission
+  const [saving,     setSaving]     = useState(false)
+  const [shareLink,  setShareLink]  = useState(null)
+  const [addedName,  setAddedName]  = useState('')
 
   const stage1 = stages.find(s => s.order_index === 1)
 
+  // ── Resume handling ──────────────────────────────────────────────────────
+
+  async function handleFile(file) {
+    if (!file) return
+    if (file.type !== 'application/pdf') { toast.error('Please select a PDF file.'); return }
+    if (file.size > 5 * 1024 * 1024)    { toast.error('File too large. Max 5 MB.'); return }
+
+    setResumeFile(file)
+    setParsing(true)
+    setParseError(false)
+
+    const fd = new FormData()
+    fd.append('file', file)
+
+    try {
+      const res  = await fetch(`${API_BASE}/api/parse-resume`, { method: 'POST', body: fd })
+      if (!res.ok) throw new Error('parse failed')
+      const data = await res.json()
+
+      const filled = new Set()
+      if (data.name)                     { setName(data.name);                       filled.add('name') }
+      if (data.email)                    { setEmail(data.email);                     filled.add('email') }
+      if (data.phone)                    { setPhone(data.phone);                     filled.add('phone') }
+      if (data.current_role)             { setCurrentRole(data.current_role);        filled.add('currentRole') }
+      if (data.current_company)          { setCurrentCompany(data.current_company);  filled.add('currentCompany') }
+      if (data.years_of_experience != null) { setYearsExp(String(data.years_of_experience)); filled.add('yearsExp') }
+      if (data.skills?.length)           { setSkills(data.skills);                  filled.add('skills') }
+      if (data.education)                { setEducation(data.education);             filled.add('education') }
+
+      setParsedFields(filled)
+      setNameConf(data.confidence?.name)
+      setEmailConf(data.confidence?.email)
+      setPhoneConf(data.confidence?.phone)
+    } catch {
+      setParseError(true)
+      setParsedFields(new Set())
+    } finally {
+      setParsing(false)
+    }
+  }
+
+  function removeFile() {
+    setResumeFile(null)
+    setParsing(false)
+    setParseError(false)
+    setParsedFields(new Set())
+    setNameConf(null); setEmailConf(null); setPhoneConf(null)
+    // Reset all parsed fields
+    setName(''); setEmail(''); setPhone('')
+    setCurrentRole(''); setCurrentCompany(''); setYearsExp('')
+    setSkills([]); setEducation('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) handleFile(file)
+  }
+
+  // ── Skills tag input ─────────────────────────────────────────────────────
+
+  function commitSkill() {
+    const s = skillInput.replace(/,/g, '').trim()
+    if (s && skills.length < 15 && !skills.some(x => x.toLowerCase() === s.toLowerCase())) {
+      setSkills(prev => [...prev, s])
+    }
+    setSkillInput('')
+  }
+
+  function handleSkillKeyDown(e) {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commitSkill() }
+  }
+
+  // ── Submit ───────────────────────────────────────────────────────────────
+
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!stage1?.template_id) {
-      toast.error('Stage 1 has no template assigned.')
-      return
-    }
+    if (!stage1?.template_id) { toast.error('Stage 1 has no template assigned.'); return }
     setSaving(true)
     try {
-      // 1. Create candidate
+      // 1. Upload resume if present (non-blocking — failure doesn't abort save)
+      let resumeUrl       = null
+      let resumeUploadErr = false
+      if (resumeFile) {
+        try {
+          const fd  = new FormData()
+          fd.append('file', resumeFile)
+          const res = await fetch(`${API_BASE}/api/upload-resume`, { method: 'POST', body: fd })
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}))
+            throw new Error(body.error || `HTTP ${res.status}`)
+          }
+          const { url } = await res.json()
+          resumeUrl = url
+        } catch (uploadErr) {
+          console.error('[add-candidate] resume upload failed:', uploadErr.message)
+          resumeUploadErr = true
+        }
+      }
+
+      // 2. Create candidate with all fields
+      const phoneVal = phone.trim() || null
       const { data: cand, error: candErr } = await supabase
         .from('candidates')
         .insert({
-          name:       name.trim(),
-          email:      email.trim().toLowerCase(),
-          phone:      phone.trim() || null,
-          company_id: user.id,
+          name:                name.trim(),
+          email:               email.trim().toLowerCase(),
+          phone:               phoneVal,
+          current_role:        currentRole.trim()    || null,
+          current_company:     currentCompany.trim() || null,
+          years_of_experience: yearsExp ? parseInt(yearsExp, 10) : null,
+          skills:              skills.length ? skills : [],
+          education:           education.trim() || null,
+          resume_url:          resumeUrl,
+          resume_parsed:       Boolean(resumeFile),
+          company_id:          user.id,
         })
         .select('id')
         .single()
-      if (candErr) throw candErr
+      if (candErr) {
+        console.error('[add-candidate] candidates insert failed:', candErr.code, candErr.message, candErr.details)
+        throw candErr
+      }
 
-      // 2. Create application
+      // 3. Create application
       const { data: app, error: appErr } = await supabase
         .from('candidate_applications')
         .insert({
@@ -200,9 +358,12 @@ function AddCandidateModal({ job, stages, user, onClose, onAdded }) {
         })
         .select('id')
         .single()
-      if (appErr) throw appErr
+      if (appErr) {
+        console.error('[add-candidate] application insert failed:', appErr.code, appErr.message)
+        throw appErr
+      }
 
-      // 3. Create interview (Stage 1 is always async_video)
+      // 4. Create interview (Stage 1 async video)
       const token     = randomToken()
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
       const { data: interview, error: intErr } = await supabase
@@ -217,9 +378,12 @@ function AddCandidateModal({ job, stages, user, onClose, onAdded }) {
         })
         .select('id')
         .single()
-      if (intErr) throw intErr
+      if (intErr) {
+        console.error('[add-candidate] interview insert failed:', intErr.code, intErr.message)
+        throw intErr
+      }
 
-      // 4. Create stage result
+      // 5. Create stage result
       const { error: srErr } = await supabase
         .from('stage_results')
         .insert({
@@ -228,25 +392,35 @@ function AddCandidateModal({ job, stages, user, onClose, onAdded }) {
           status:         'pending',
           interview_id:   interview.id,
         })
-      if (srErr) throw srErr
+      if (srErr) {
+        console.error('[add-candidate] stage_result insert failed:', srErr.code, srErr.message)
+        throw srErr
+      }
 
       setAddedName(name.trim())
       setShareLink(`${APP_BASE_URL}/i/${token}`)
+      if (resumeUploadErr) {
+        toast('Candidate saved — resume could not be uploaded. You can add it later.', { icon: '⚠️' })
+      }
       onAdded()
     } catch (err) {
-      console.error(err)
-      toast.error('Failed to add candidate.')
+      console.error('[add-candidate] unhandled error:', err)
+      const msg = err?.message || 'Unknown error'
+      toast.error(`Failed to add candidate: ${msg}`)
     } finally {
       setSaving(false)
     }
   }
 
+  // ── Render ───────────────────────────────────────────────────────────────
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl p-6">
+      <div className="w-full max-w-lg bg-white rounded-2xl border border-slate-200 shadow-xl
+        flex flex-col max-h-[90vh]">
 
-        {/* Modal header */}
-        <div className="flex items-center justify-between mb-5">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 shrink-0">
           <h3 className="text-base font-bold text-slate-900 tracking-tight">
             {shareLink ? 'Candidate added' : 'Add candidate'}
           </h3>
@@ -258,81 +432,230 @@ function AddCandidateModal({ job, stages, user, onClose, onAdded }) {
         </div>
 
         {!shareLink ? (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <form onSubmit={handleSubmit} className="flex flex-col overflow-y-auto">
+            <div className="px-6 pb-6 flex flex-col gap-5">
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700">
-                Full name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                required
-                autoFocus
-                placeholder="Candidate full name"
-                className="px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900
-                  placeholder:text-slate-400 focus:outline-none focus:ring-2
-                  focus:ring-[#005ea4]/30 focus:border-[#005ea4] transition-colors"
-              />
-            </div>
+              {/* ── Resume upload ─────────────────────────────────────────── */}
+              <div className="flex flex-col gap-2">
+                <FieldLabel optional>Upload resume</FieldLabel>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700">
-                Email <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                placeholder="candidate@example.com"
-                className="px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900
-                  placeholder:text-slate-400 focus:outline-none focus:ring-2
-                  focus:ring-[#005ea4]/30 focus:border-[#005ea4] transition-colors"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-slate-700">
-                Phone{' '}
-                <span className="text-slate-400 font-normal">(optional)</span>
-              </label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                placeholder="+91 98765 43210"
-                className="px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900
-                  placeholder:text-slate-400 focus:outline-none focus:ring-2
-                  focus:ring-[#005ea4]/30 focus:border-[#005ea4] transition-colors"
-              />
-            </div>
-
-            {/* Warning when Stage 1 has no template */}
-            {!stage1?.template_id && (
-              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
-                <p className="text-xs text-amber-700 leading-relaxed">
-                  Stage 1 has no template assigned.{' '}
-                  <Link
-                    to={`/jobs/${job.id}/edit`}
-                    className="font-semibold underline"
-                    onClick={onClose}
+                {!resumeFile && !parsing ? (
+                  /* Drag-drop zone */
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                    onDragEnter={e => { e.preventDefault(); setDragOver(true) }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      border:          `2px dashed rgba(0,94,164,${dragOver ? 1 : 0.35})`,
+                      backgroundColor: `rgba(0,94,164,${dragOver ? 0.07 : 0.025})`,
+                      transition:      'all 0.2s',
+                    }}
+                    className="rounded-xl p-6 flex flex-col items-center gap-2
+                      cursor-pointer select-none"
                   >
-                    Edit the job opening
-                  </Link>{' '}
-                  to add one before adding candidates.
-                </p>
-              </div>
-            )}
+                    <UploadCloud size={22} className="text-[#005ea4]/60" />
+                    <p className="text-sm font-semibold text-slate-600">Drop PDF resume here</p>
+                    <p className="text-xs text-slate-400">or click to browse · PDF only · Max 5 MB</p>
+                  </div>
+                ) : parsing ? (
+                  /* Parsing state */
+                  <div className="flex items-center gap-3 px-4 py-3.5 rounded-xl
+                    border border-slate-200 bg-slate-50">
+                    <span className="w-4 h-4 border-2 border-[#005ea4]/30 border-t-[#005ea4]
+                      rounded-full animate-spin shrink-0" />
+                    <span className="text-sm text-slate-600">Reading resume…</span>
+                  </div>
+                ) : (
+                  /* File info */
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl
+                      border border-slate-200 bg-slate-50">
+                      <FileText size={16} className="text-[#005ea4] shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-slate-700 truncate">{resumeFile.name}</p>
+                        <p className="text-[11px] text-slate-400">{(resumeFile.size / 1024).toFixed(0)} KB</p>
+                      </div>
+                      <button type="button" onClick={removeFile}
+                        className="text-xs text-slate-400 hover:text-red-500 transition-colors
+                          font-medium shrink-0 flex items-center gap-1">
+                        <X size={12} />Remove
+                      </button>
+                    </div>
 
-            <div className="flex gap-3 pt-1">
+                    {/* Parse success / error banners */}
+                    {parsedFields.size > 0 && !parseError && (
+                      <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-xl
+                        bg-[#e6f5ef] border border-[#b3dece]">
+                        <Check size={14} className="text-[#1D9E75] shrink-0 mt-0.5" />
+                        <p className="text-xs text-[#1a6646] leading-relaxed">
+                          <span className="font-semibold">Resume parsed</span> — fields have been
+                          pre-filled. Please review and edit if needed.
+                        </p>
+                      </div>
+                    )}
+                    {parseError && (
+                      <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-xl
+                        bg-amber-50 border border-amber-200">
+                        <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-700 leading-relaxed">
+                          Couldn't read all details — please fill in the form manually.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  className="hidden"
+                  onChange={e => handleFile(e.target.files?.[0])}
+                />
+              </div>
+
+              {/* ── Divider ──────────────────────────────────────────────── */}
+              <div className="border-t border-slate-100" />
+
+              {/* ── Required fields ───────────────────────────────────────── */}
+              <div className="flex flex-col gap-4">
+
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel lowConf={nameConf === 'low' && parsedFields.has('name')}>
+                    Full name <span className="text-red-500">*</span>
+                  </FieldLabel>
+                  <input type="text" value={name} onChange={e => setName(e.target.value)}
+                    required autoFocus
+                    placeholder="Candidate's full name"
+                    style={parsedStyle(parsedFields.has('name'))}
+                    className={`${INPUT_BASE} border-slate-200`} />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel lowConf={emailConf === 'low' && parsedFields.has('email')}>
+                    Email <span className="text-red-500">*</span>
+                  </FieldLabel>
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                    required
+                    placeholder="candidate@email.com"
+                    style={parsedStyle(parsedFields.has('email'))}
+                    className={`${INPUT_BASE} border-slate-200`} />
+                </div>
+              </div>
+
+              {/* ── Optional fields ───────────────────────────────────────── */}
+              <div className="flex flex-col gap-4">
+
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel optional lowConf={phoneConf === 'low' && parsedFields.has('phone')}>
+                    Phone
+                  </FieldLabel>
+                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                    placeholder="+91 XXXXX XXXXX"
+                    style={parsedStyle(parsedFields.has('phone'))}
+                    className={`${INPUT_BASE} border-slate-200`} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <FieldLabel optional>Current role</FieldLabel>
+                    <input type="text" value={currentRole} onChange={e => setCurrentRole(e.target.value)}
+                      placeholder="e.g. Senior PM"
+                      style={parsedStyle(parsedFields.has('currentRole'))}
+                      className={`${INPUT_BASE} border-slate-200`} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <FieldLabel optional>Current company</FieldLabel>
+                    <input type="text" value={currentCompany} onChange={e => setCurrentCompany(e.target.value)}
+                      placeholder="e.g. Flipkart"
+                      style={parsedStyle(parsedFields.has('currentCompany'))}
+                      className={`${INPUT_BASE} border-slate-200`} />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel optional>Years of experience</FieldLabel>
+                  <input type="number" value={yearsExp} onChange={e => setYearsExp(e.target.value)}
+                    min={0} max={40}
+                    placeholder="e.g. 4"
+                    style={parsedStyle(parsedFields.has('yearsExp'))}
+                    className={`${INPUT_BASE} border-slate-200 w-32`} />
+                </div>
+
+                {/* Skills tags */}
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel optional>Skills</FieldLabel>
+                  <div
+                    style={parsedStyle(parsedFields.has('skills') && skills.length > 0)}
+                    className="rounded-lg border border-slate-200 px-3 py-2.5 flex flex-wrap gap-1.5
+                      focus-within:ring-2 focus-within:ring-[#005ea4]/30 focus-within:border-[#005ea4]
+                      transition-colors min-h-[42px]">
+                    {skills.map(skill => (
+                      <span key={skill}
+                        className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 rounded-full
+                          bg-[#e6f0f9] text-[#005ea4] text-xs font-semibold border border-[#b3d0ea]">
+                        {skill}
+                        <button type="button" onClick={() => setSkills(prev => prev.filter(s => s !== skill))}
+                          className="hover:text-red-500 transition-colors">
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                    {skills.length < 15 && (
+                      <input
+                        type="text"
+                        value={skillInput}
+                        onChange={e => setSkillInput(e.target.value)}
+                        onKeyDown={handleSkillKeyDown}
+                        onBlur={commitSkill}
+                        placeholder={skills.length === 0 ? 'Add a skill… (press Enter or comma)' : ''}
+                        className="flex-1 min-w-[120px] text-xs text-slate-700 outline-none
+                          placeholder:text-slate-400 bg-transparent py-0.5"
+                      />
+                    )}
+                  </div>
+                  {skills.length >= 15 && (
+                    <p className="text-[11px] text-slate-400">Maximum 15 skills</p>
+                  )}
+                </div>
+
+                {/* Education */}
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel optional>Education</FieldLabel>
+                  <textarea value={education} onChange={e => setEducation(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. B.Tech, IIT Delhi, 2019"
+                    style={parsedStyle(parsedFields.has('education'))}
+                    className={`${INPUT_BASE} border-slate-200 resize-none`} />
+                </div>
+              </div>
+
+              {/* Warning when Stage 1 has no template */}
+              {!stage1?.template_id && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                  <p className="text-xs text-amber-700 leading-relaxed">
+                    Stage 1 has no template assigned.{' '}
+                    <Link to={`/jobs/${job.id}/edit`} onClick={onClose}
+                      className="font-semibold underline">
+                      Edit the job opening
+                    </Link>{' '}
+                    to add one before adding candidates.
+                  </p>
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer buttons — sticky */}
+            <div className="flex gap-3 px-6 py-4 border-t border-slate-100 shrink-0">
               <button type="button" onClick={onClose}
                 className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold
                   text-slate-600 hover:bg-slate-50 transition-colors">
                 Cancel
               </button>
-              <button type="submit" disabled={saving || !stage1?.template_id}
+              <button type="submit" disabled={saving || !stage1?.template_id || parsing}
                 className="flex-1 py-2.5 rounded-lg bg-[#005ea4] hover:bg-[#004d8a] text-white
                   text-sm font-semibold transition-colors shadow-sm
                   disabled:opacity-60 disabled:cursor-not-allowed
@@ -344,8 +667,8 @@ function AddCandidateModal({ job, stages, user, onClose, onAdded }) {
             </div>
           </form>
         ) : (
-          <>
-            <div className="flex items-center gap-2.5 text-sm text-slate-600">
+          <div className="px-6 pb-6">
+            <div className="flex items-center gap-2.5 text-sm text-slate-600 mb-0">
               <span className="w-7 h-7 rounded-full bg-[#e6f5ef] flex items-center justify-center shrink-0">
                 <Check size={14} className="text-[#1D9E75]" />
               </span>
@@ -359,7 +682,7 @@ function AddCandidateModal({ job, stages, user, onClose, onAdded }) {
               candidateName={addedName}
               onClose={onClose}
             />
-          </>
+          </div>
         )}
       </div>
     </div>
@@ -676,6 +999,19 @@ function CandidateRow({ app, stages, jobId, onReject, onRestore, onConfirmMoveNe
             <span className="text-xs text-slate-400">{app.candidates.phone}</span>
           )}
         </div>
+        {/* Profile snippet */}
+        {(() => {
+          const parts = [
+            app.candidates?.current_role,
+            app.candidates?.current_company,
+            app.candidates?.years_of_experience != null
+              ? `${app.candidates.years_of_experience} yrs exp`
+              : null,
+          ].filter(Boolean)
+          return parts.length > 0 ? (
+            <p className="text-xs text-slate-400 leading-snug">{parts.join(' · ')}</p>
+          ) : null
+        })()}
         <div className="mt-2 flex items-center gap-2 flex-wrap">
           {currentStage && (
             <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium
@@ -815,7 +1151,7 @@ export default function JobPipelinePage() {
           .from('candidate_applications')
           .select(`
             id, current_stage_index, overall_status, created_at,
-            candidates ( id, name, email, phone ),
+            candidates ( id, name, email, phone, current_role, current_company, years_of_experience ),
             stage_results (
               id, stage_id, status, interview_id, scheduled_at,
               interviews ( id, status, token, submitted_at )
